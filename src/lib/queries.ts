@@ -1,5 +1,7 @@
 import "server-only";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import type { MemberSort } from "@/lib/member-sort";
 
 /** Bills whose upstream record changed most recently. */
 export async function getRecentBills(take = 5) {
@@ -160,19 +162,49 @@ export async function getBill(billId: number) {
   });
 }
 
-export async function listMembers(opts: { q?: string; onlyServing?: boolean } = {}) {
-  const { q, onlyServing = false } = opts;
+const MEMBER_ORDER_BY: Record<MemberSort, Prisma.PersonOrderByWithRelationInput[]> = {
+  name: [{ lastName: "asc" }, { firstName: "asc" }],
+  faction: [{ factionName: "asc" }, { lastName: "asc" }],
+  // "coalition" sorts before "opposition" alphabetically, which is the order we want.
+  bloc: [{ bloc: "asc" }, { factionName: "asc" }, { lastName: "asc" }],
+  bills: [{ billsInitiated: { _count: "desc" } }, { lastName: "asc" }],
+  seniority: [{ mkStartDate: "asc" }, { lastName: "asc" }],
+};
+
+export async function listMembers(
+  opts: { q?: string; onlyServing?: boolean; sort?: MemberSort } = {},
+) {
+  const { q, onlyServing = false, sort = "name" } = opts;
   return prisma.person.findMany({
     where: {
       isMk: true,
       ...(onlyServing ? { mkEndDate: null } : {}),
       ...(q
-        ? { OR: [{ firstName: { contains: q } }, { lastName: { contains: q } }, { factionName: { contains: q } }] }
+        ? {
+            OR: [
+              { firstName: { contains: q } },
+              { lastName: { contains: q } },
+              { factionName: { contains: q } },
+              { governmentRole: { contains: q } },
+            ],
+          }
         : {}),
     },
-    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    orderBy: MEMBER_ORDER_BY[sort],
     include: { _count: { select: { billsInitiated: true } } },
   });
+}
+
+/** Headline counts for the members page. */
+export async function getMemberBlocCounts() {
+  const [serving, coalition, opposition, government, unaligned] = await Promise.all([
+    prisma.person.count({ where: { isMk: true, mkEndDate: null } }),
+    prisma.person.count({ where: { isMk: true, mkEndDate: null, bloc: "coalition" } }),
+    prisma.person.count({ where: { isMk: true, mkEndDate: null, bloc: "opposition" } }),
+    prisma.person.count({ where: { isMk: true, mkEndDate: null, isMinister: true } }),
+    prisma.person.count({ where: { isMk: true, mkEndDate: null, bloc: null } }),
+  ]);
+  return { serving, coalition, opposition, government, unaligned };
 }
 
 export async function getMember(personId: number) {

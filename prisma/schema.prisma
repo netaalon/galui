@@ -30,6 +30,16 @@ model Person {
   factionName String?
   /// Highest-profile non-MK role (minister, committee chair...), for display.
   roleDesc    String?
+
+  /// "coalition" | "opposition", from the curated faction map in
+  /// src/lib/factions.ts. The OData service does not expose bloc membership —
+  /// see the note there before trusting or changing this.
+  bloc        String?
+  /// Role in the *sitting* government, e.g. "שר החינוך". Null for MKs who hold
+  /// no portfolio now, including ministers of a previous government.
+  governmentRole String?
+  /// True when governmentRole is set — kept as a column so it can be sorted on.
+  isMinister  Boolean @default(false)
   mkStartDate DateTime?
   mkEndDate   DateTime?
 
@@ -46,6 +56,7 @@ model Person {
   participations CommitteeParticipant[]
 
   @@index([isMk, knessetNum])
+  @@index([bloc])
   @@index([lastName])
 }
 
@@ -64,6 +75,9 @@ model PersonPosition {
   committeeId        Int?
   committeeName      String?
   govMinistryName    String?
+  /// Which government the role belongs to. Knesset 25 spans two: the outgoing
+  /// 36th still in office when the term opened, and the sitting 37th.
+  governmentNum      Int?
   isCurrent          Boolean @default(false)
   lastUpdatedDate    DateTime?
 

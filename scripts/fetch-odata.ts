@@ -11,6 +11,7 @@
 import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { blocFor, unmappedFactions } from "../src/lib/factions.js";
 import { chunk, count, fetchAll, orIn, parseBool, parseDate } from "./lib/odata.js";
 
 // ---------------------------------------------------------------------------
@@ -22,7 +23,7 @@ interface RawFaction { FactionID: number; Name: string | null; KnessetNum: numbe
 interface RawCommittee { CommitteeID: number; Name: string | null; CategoryDesc: string | null; KnessetNum: number | null; CommitteeTypeDesc: string | null; ParentCommitteeID: number | null; CommitteeParentName: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
 interface RawPerson { PersonID: number; FirstName: string | null; LastName: string | null; GenderDesc: string | null; Email: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
 interface RawMkSiteCode { MKSiteCode: string; KnsID: number; SiteId: number }
-interface RawPersonToPosition { PersonToPositionID: number; PersonID: number; PositionID: number; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; FactionID: number | null; FactionName: string | null; DutyDesc: string | null; CommitteeID: number | null; CommitteeName: string | null; GovMinistryName: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+interface RawPersonToPosition { PersonToPositionID: number; PersonID: number; PositionID: number; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; FactionID: number | null; FactionName: string | null; DutyDesc: string | null; CommitteeID: number | null; CommitteeName: string | null; GovMinistryName: string | null; GovernmentNum: number | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
 interface RawPosition { PositionID: number; Description: string | null }
 interface RawBill { BillID: number; KnessetNum: number | null; Name: string | null; SubTypeID: number | null; SubTypeDesc: string | null; PrivateNumber: number | null; Number: number | null; CommitteeID: number | null; StatusID: number | null; PostponementReasonDesc: string | null; PublicationDate: string | null; SummaryLaw: string | null; PublicationSeriesDesc: string | null; IsContinuationBill: boolean | null; LastUpdatedDate: string | null }
 interface RawBillInitiator { BillInitiatorID: number; BillID: number; PersonID: number; IsInitiator: boolean | null; Ordinal: number | null; LastUpdatedDate: string | null }
@@ -59,6 +60,8 @@ const POSITION_MK = [43, 61]; // חבר הכנסת / חברת הכנסת
 const POSITION_FACTION_MEMBER = 54; // חבר/ת סיעה
 /** Roles worth surfacing on a member card, most senior first. */
 const NOTABLE_POSITIONS = [45, 73, 31, 50, 65, 122, 123, 39, 57, 40, 59, 131, 130, 29, 30, 48, 41, 70, 71];
+/** Positions that make someone a member of the government. */
+const GOVERNMENT_POSITIONS = [45, 73, 51, 31, 50, 65, 39, 57, 40, 59];
 /** KNS_ItemType id for a bill. */
 const ITEM_TYPE_BILL = 2;
 
@@ -190,7 +193,8 @@ async function ingestPositions() {
       startDate: parseDate(r.StartDate), finishDate: parseDate(r.FinishDate),
       factionId: r.FactionID, factionName: r.FactionName, dutyDesc: r.DutyDesc,
       committeeId: r.CommitteeID, committeeName: r.CommitteeName,
-      govMinistryName: r.GovMinistryName, isCurrent: parseBool(r.IsCurrent),
+      govMinistryName: r.GovMinistryName, governmentNum: r.GovernmentNum,
+      isCurrent: parseBool(r.IsCurrent),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.personPosition.upsert({ where: { personToPositionId: r.PersonToPositionID }, create: data, update: data });
@@ -199,7 +203,13 @@ async function ingestPositions() {
   done(`${n} positions`);
 
   // --- Derive the "MK" view the OData service does not provide -------------
-  step("Deriving MK flags, factions and roles");
+  step("Deriving MK flags, factions, blocs and government roles");
+  // The term spans two governments; only the highest-numbered one is sitting.
+  const currentGovernment = Math.max(
+    ...usable.map((r) => r.GovernmentNum ?? 0),
+    0,
+  );
+  console.log(`  sitting government: ${currentGovernment}`);
   const byPerson = new Map<number, RawPersonToPosition[]>();
   for (const r of usable) {
     const list = byPerson.get(r.PersonID) ?? [];
@@ -225,13 +235,29 @@ async function ingestPositions() {
     const stillServing = mkRows.some((r) => r.FinishDate == null);
     const ends = mkRows.map((r) => parseDate(r.FinishDate)).filter((d): d is Date => d !== null);
 
+    // A role in the *sitting* government only. Knesset 25 opened while the 36th
+    // government was still in office, so its ministers appear here too and must
+    // not be shown as serving ministers.
+    const govRow = list
+      .filter((r) => GOVERNMENT_POSITIONS.includes(r.PositionID))
+      .filter((r) => r.GovernmentNum === currentGovernment)
+      .filter((r) => parseBool(r.IsCurrent) || r.FinishDate == null)
+      .sort((a, b) => GOVERNMENT_POSITIONS.indexOf(a.PositionID) - GOVERNMENT_POSITIONS.indexOf(b.PositionID))[0];
+
+    const governmentRole = govRow
+      ? (govRow.DutyDesc ?? [descById.get(govRow.PositionID), govRow.GovMinistryName].filter(Boolean).join(" — ") ?? null)
+      : null;
+
     updates.push({
       personId,
       data: {
         isMk: true,
         knessetNum: KNESSET,
         factionId: factionRow?.FactionID ?? null,
-        factionName: factionRow?.FactionName ?? null,
+        factionName: factionRow?.FactionName?.trim() ?? null,
+        bloc: blocFor(factionRow?.FactionID),
+        governmentRole,
+        isMinister: govRow != null,
         roleDesc: notable ? (notable.DutyDesc ?? descById.get(notable.PositionID) ?? null) : null,
         mkStartDate: starts.length ? new Date(Math.min(...starts.map((d) => d.getTime()))) : null,
         mkEndDate: stillServing || ends.length === 0 ? null : new Date(Math.max(...ends.map((d) => d.getTime()))),
@@ -240,7 +266,15 @@ async function ingestPositions() {
   }
 
   await writeBatched(updates, (u) => prisma.person.update({ where: { personId: u.personId }, data: u.data }));
-  done(`${updates.length} members of the ${KNESSET}th Knesset flagged`);
+  const ministers = updates.filter((u) => u.data.isMinister).length;
+  const unBloc = updates.filter((u) => u.data.bloc == null).length;
+  done(`${updates.length} members flagged · ${ministers} in the sitting government · ${unBloc} without a bloc`);
+
+  // A faction missing from the curated map silently loses its bloc badge, so say so.
+  const missing = unmappedFactions(updates.map((u) => u.data.factionId as number | null));
+  if (missing.length) {
+    console.warn(`  ! factions absent from src/lib/factions.ts: ${missing.join(", ")} — their members will show no bloc`);
+  }
 }
 
 async function ingestBills(): Promise<number[]> {

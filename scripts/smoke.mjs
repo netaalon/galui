@@ -26,7 +26,7 @@ async function check(path, fn) {
   console.log("  " + result);
   console.log("  console errors: " + (errors.length ? errors.join(" | ") : "none"));
   if (errors.length) failures.push(`${path}: ${errors.join(" | ")}`);
-  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain/.test(result)) failures.push(`${path}: ${result}`);
+  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false/.test(result)) failures.push(`${path}: ${result}`);
 }
 
 await check("/members/30839", async () => {
@@ -102,7 +102,22 @@ await check("/", async () => {
 
 await check("/members", async () => {
   const cards = await page.locator('a[href^="/members/"]').count();
-  return `member cards=${cards}`;
+  const blocs = await page.locator("text=קואליציה").count();
+  return `member cards=${cards} blocBadges=${blocs}`;
+});
+
+// Sorting is URL-driven; the controls are optimistic so they must reflect the
+// change immediately rather than snapping back during the navigation.
+await check("/members", async () => {
+  await page.selectOption("select", "bloc");
+  await page.waitForURL(/sort=bloc/, { timeout: 10000 });
+  await page.getByRole("checkbox").check();
+  await page.waitForURL(/serving=1/, { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
+  const groups = await page.locator("section > h2").count();
+  const cards = await page.locator('a[href^="/members/"]').count();
+  const checked = await page.getByRole("checkbox").isChecked();
+  return `sorted groups=${groups} servingCards=${cards} checkboxHeld=${checked}`;
 });
 
 // Horizontal overflow check on mobile width

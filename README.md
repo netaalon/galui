@@ -115,6 +115,17 @@ Things worth knowing, all verified against the live service:
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format, so rows are stored under a synthetic
   `"<documentId>:<applicationId>"` id.
+- **Coalition/opposition membership is not published anywhere in the service.**
+  The only bloc records are two leadership posts, `PositionID` 30
+  (יושב–ראש הקואליציה) and 131 (ראש האופוזיציה), one MK each. It cannot be
+  inferred from who holds a portfolio either — ש"ס has eleven serving MKs and no
+  current ministers, and נעם likewise, so both would come out as opposition.
+  The mapping therefore lives in `src/lib/factions.ts`, is **hand-maintained**,
+  and is re-applied to `Person.bloc` on every ingest. Government roles, by
+  contrast, come straight from `KNS_PersonToPosition`.
+- **Knesset 25 spans two governments.** The 36th was still in office when the
+  term opened, so its ministers appear in the position data. Only roles whose
+  `GovernmentNum` matches the sitting government (37) are shown as current.
 - **Government bills have no MK initiators** — they are submitted by a ministry,
   so `KNS_BillInitiator` is legitimately empty for them (100% of private bills
   have sponsors; only 10% of government bills do). The bill page says so rather
@@ -136,9 +147,11 @@ Things worth knowing, all verified against the live service:
   links to the relevant protocol or transcript files.
 - `/plenum`, `/plenum/[id]` — plenum sittings, and per sitting the bills on its
   agenda with the stage each reached, other agenda items, and its transcripts.
-- `/members`, `/members/[id]` — member card, faction and roles, a Recharts bar
-  chart of bills sponsored per month (split lead vs. co-signed), committees, and
-  recent bills.
+- `/members`, `/members/[id]` — member cards showing faction, coalition or
+  opposition, and any role in the sitting government; sortable by name, faction,
+  bloc, bills sponsored or seniority, with a serving-only filter. Detail pages
+  add a Recharts bar chart of bills sponsored per month (split lead vs.
+  co-signed), committees, and recent bills.
 - `/search` — across bills, members and sessions in the local mirror.
 
 ## Phase 2 — who spoke in committee (stub)

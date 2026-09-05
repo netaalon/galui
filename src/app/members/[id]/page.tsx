@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BlocBadge, GovernmentBadge } from "@/components/bloc-badge";
 import { MemberActivityChart } from "@/components/member-activity-chart";
 import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
@@ -41,8 +42,13 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
         <div className="min-w-0 flex-1 space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{fullName(member)}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            {member.factionName ? <Badge variant="secondary">{member.factionName}</Badge> : null}
-            {member.roleDesc ? <Badge variant="outline">{member.roleDesc}</Badge> : null}
+            {member.factionName ? <Badge variant="secondary">{member.factionName.trim()}</Badge> : null}
+            <BlocBadge bloc={member.bloc} />
+            <GovernmentBadge role={member.governmentRole} />
+            {/* roleDesc can restate the government role; show it only when it adds something. */}
+            {member.roleDesc && member.roleDesc !== member.governmentRole ? (
+              <Badge variant="outline">{member.roleDesc}</Badge>
+            ) : null}
             {member.mkEndDate ? (
               <Badge variant="outline" className="border-muted-foreground/30 text-muted-foreground">
                 סיים/ה כהונה {formatDate(member.mkEndDate)}
