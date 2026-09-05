@@ -54,7 +54,11 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
           {bill.committee?.name ? (
             <div className="flex gap-1.5">
               <dt>ועדה אחראית:</dt>
-              <dd className="text-foreground">{bill.committee.name}</dd>
+              <dd>
+                <Link href={`/committees/${bill.committeeId}`} className="text-primary hover:underline">
+                  {bill.committee.name}
+                </Link>
+              </dd>
             </div>
           ) : null}
           {bill.firstStepDate ? (

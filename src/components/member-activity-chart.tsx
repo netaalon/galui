@@ -12,6 +12,15 @@ import {
 
 export type ActivityPoint = { month: string; total: number; lead: number };
 
+/**
+ * The chart plots one or two stacked series. Members split their bills into
+ * lead and co-signed; committees have a single series of sittings, so the
+ * labels have to be supplied rather than hardcoded.
+ */
+export type ActivityLabels = { lead: string; rest: string };
+
+const MEMBER_LABELS: ActivityLabels = { lead: "יוזם/ת ראשי/ת", rest: "חתום/ה" };
+
 /** "2025-08" → "אוג׳ 25" */
 function labelFor(month: string): string {
   const [y, m] = month.split("-").map(Number);
@@ -19,7 +28,17 @@ function labelFor(month: string): string {
     .format(new Date(Date.UTC(y, m - 1, 1)));
 }
 
-export function MemberActivityChart({ data }: { data: ActivityPoint[] }) {
+export function MemberActivityChart({
+  data,
+  labels = MEMBER_LABELS,
+  /** Committees have one series of sittings; rendering the empty second one
+   *  puts a stray ": 0" in every tooltip. */
+  singleSeries = false,
+}: {
+  data: ActivityPoint[];
+  labels?: ActivityLabels;
+  singleSeries?: boolean;
+}) {
   const rows = data.map((d) => ({ ...d, label: labelFor(d.month), cosponsored: d.total - d.lead }));
 
   return (
@@ -59,11 +78,17 @@ export function MemberActivityChart({ data }: { data: ActivityPoint[] }) {
             labelStyle={{ fontWeight: 600, marginBottom: "0.25rem" }}
             formatter={(value, name) => [
               String(value ?? 0),
-              name === "lead" ? "יוזם/ת ראשי/ת" : "חתום/ה",
+              name === "lead" ? labels.lead : labels.rest,
             ]}
           />
-          <Bar dataKey="lead" stackId="a" fill="var(--chart-1)" radius={[0, 0, 4, 4]} />
-          <Bar dataKey="cosponsored" stackId="a" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+          {singleSeries ? (
+            <Bar dataKey="total" name="total" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
+          ) : (
+            <>
+              <Bar dataKey="lead" stackId="a" fill="var(--chart-1)" radius={[0, 0, 4, 4]} />
+              <Bar dataKey="cosponsored" stackId="a" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+            </>
+          )}
         </BarChart>
       </ResponsiveContainer>
     </div>

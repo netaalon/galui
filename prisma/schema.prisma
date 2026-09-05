@@ -129,7 +129,35 @@ model Committee {
   sessions CommitteeSession[]
   bills    Bill[]
 
+  parent        Committee?  @relation("Subcommittees", fields: [parentCommitteeId], references: [committeeId], onDelete: SetNull)
+  subcommittees Committee[] @relation("Subcommittees")
+
+  /// Rows where this committee is the joint one, listing its participants.
+  jointParticipants JointCommittee[] @relation("JointParent")
+  /// Rows where this committee takes part in someone else's joint committee.
+  jointMemberships  JointCommittee[] @relation("JointParticipant")
+
   @@index([knessetNum])
+  @@index([parentCommitteeId])
+  @@index([committeeTypeDesc])
+}
+
+/// KNS_JointCommittee — which committees make up a joint committee.
+///
+/// `$metadata` declares `JointCommitteeID` as the key, but it is not unique —
+/// the value "1" appears on many rows. The real key is the pair of committees,
+/// which is what this model uses.
+model JointCommittee {
+  committeeId            Int
+  participantCommitteeId Int
+  jointCommitteeId       String?
+  lastUpdatedDate        DateTime?
+
+  committee   Committee @relation("JointParent", fields: [committeeId], references: [committeeId], onDelete: Cascade)
+  participant Committee @relation("JointParticipant", fields: [participantCommitteeId], references: [committeeId], onDelete: Cascade)
+
+  @@id([committeeId, participantCommitteeId])
+  @@index([participantCommitteeId])
 }
 
 /// KNS_Status — resolves StatusID on bills and session items to Hebrew labels.

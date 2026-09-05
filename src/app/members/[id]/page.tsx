@@ -9,8 +9,8 @@ import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
-import { getMember, getMemberActivityByMonth, getMemberCommittees, getMemberQuestions } from "@/lib/queries";
+import { countLabel, formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
+import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberQuestions } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
 
   const [activity, committees, questions] = await Promise.all([
     getMemberActivityByMonth(personId),
-    getMemberCommittees(personId),
+    getCommitteesForMember(personId),
     getMemberQuestions(personId, 8),
   ]);
 
@@ -179,18 +179,23 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
           <Card>
             <CardHeader>
               <CardTitle>ועדות</CardTitle>
+              <CardDescription>
+                חברוּת בוועדות אינה מתפרסמת ב־API; אלה הוועדות שדנו בהצעות החוק
+                של חבר/ת הכנסת.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {committees.length === 0 ? (
-                <EmptyState>לא רשומות חברויות בוועדות.</EmptyState>
+                <EmptyState>אף ועדה לא דנה בהצעות החוק שבמאגר.</EmptyState>
               ) : (
                 <ul className="space-y-2.5">
                   {committees.map((c) => (
-                    <li key={c.personToPositionId} className="text-sm">
-                      <span className="block leading-snug">{c.committeeName}</span>
+                    <li key={c.committeeId} className="text-sm">
+                      <Link href={`/committees/${c.committeeId}`} className="block leading-snug hover:text-foreground hover:underline">
+                        {c.name}
+                      </Link>
                       <span className="text-xs text-muted-foreground">
-                        {c.positionDesc ?? "חבר/ת ועדה"}
-                        {c.isCurrent ? "" : " · בעבר"}
+                        {countLabel(c.discussions, "דיון אחד", "דיונים")}
                       </span>
                     </li>
                   ))}

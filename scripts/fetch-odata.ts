@@ -31,6 +31,7 @@ interface RawCommitteeSession { CommitteeSessionID: number; Number: number | nul
 interface RawCmtSessionItem { CmtSessionItemID: number; ItemID: number | null; ItemTypeID: number | null; CommitteeSessionID: number; Ordinal: number | null; StatusID: number | null; Name: string | null; LastUpdatedDate: string | null }
 interface RawSessionDocument { DocumentCommitteeSessionID: string | number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawItemType { ItemTypeID: number; Desc: string | null }
+interface RawJointCommittee { JointCommitteeID: string | number | null; CommitteeID: number; ParticipantCommitteeID: number; LastUpdatedDate: string | null }
 interface RawGovMinistry { GovMinistryID: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
 interface RawQuery { QueryID: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
 interface RawQueryDocument { DocumentQueryID: string | number; QueryID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
@@ -520,6 +521,39 @@ async function ingestBillDocuments(billIds: number[]) {
   done(`${n} documents across ${withDocs} bills`);
 }
 
+/**
+ * KNS_JointCommittee — which committees make up a joint committee.
+ *
+ * The declared key `JointCommitteeID` is not unique (the value "1" recurs), so
+ * rows are keyed on the committee pair instead.
+ */
+async function ingestJointCommittees() {
+  step("KNS_JointCommittee — composition of joint committees");
+  const rows = await fetchAll<RawJointCommittee>("KNS_JointCommittee");
+  const known = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
+  const usable = rows.filter((r) => known.has(r.CommitteeID) && known.has(r.ParticipantCommitteeID));
+
+  // The same pair can appear twice upstream; keep one row per pair.
+  const seen = new Set<string>();
+  const deduped = usable.filter((r) => {
+    const key = `${r.CommitteeID}:${r.ParticipantCommitteeID}`;
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
+
+  const n = await writeBatched(deduped, (r) => {
+    const where = { committeeId_participantCommitteeId: { committeeId: r.CommitteeID, participantCommitteeId: r.ParticipantCommitteeID } };
+    const data = {
+      committeeId: r.CommitteeID, participantCommitteeId: r.ParticipantCommitteeID,
+      jointCommitteeId: r.JointCommitteeID != null ? String(r.JointCommitteeID) : null,
+      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.jointCommittee.upsert({ where, create: data, update: data });
+  });
+  await record("KNS_JointCommittee", rows.length, n, true);
+  const skipped = usable.length - deduped.length;
+  done(`${n} links${skipped ? ` (${skipped} duplicate pairs)` : ""}${rows.length - usable.length ? `, ${rows.length - usable.length} skipped: committee not held` : ""}`);
+}
+
 // ---------------------------------------------------------------------------
 // Plenum
 // ---------------------------------------------------------------------------
@@ -772,6 +806,7 @@ async function main() {
   await ingestCommittees();
   await ingestPeople();
   await ingestPositions();
+  await ingestJointCommittees();
 
   const billIds = await ingestBills();
   await ingestBillInitiators(billIds);
@@ -846,6 +881,7 @@ async function main() {
     plenumItems: await prisma.plenumSessionItem.count(),
     billReadings: await prisma.plenumSessionItem.count({ where: { billId: { not: null } } }),
     transcripts: await prisma.plenumDocument.count(),
+    jointLinks: await prisma.jointCommittee.count(),
     ministries: await prisma.govMinistry.count(),
     questions: await prisma.question.count(),
     questionDocs: await prisma.questionDocument.count(),

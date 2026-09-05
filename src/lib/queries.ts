@@ -282,16 +282,16 @@ export async function getMemberActivityByMonth(personId: number) {
   return filled;
 }
 
-/** Committee sessions this member sits on, via their committee positions. */
-export async function getMemberCommittees(personId: number) {
-  const rows = await prisma.personPosition.findMany({
-    where: { personId, committeeId: { not: null } },
-    orderBy: [{ isCurrent: "desc" }, { startDate: "desc" }],
-  });
-  // One person can hold several roles on the same committee over a term.
-  const seen = new Set<number>();
-  return rows.filter((r) => (r.committeeId != null && !seen.has(r.committeeId) ? (seen.add(r.committeeId), true) : false));
-}
+/*
+ * Removed: getMemberCommittees().
+ *
+ * It read PersonPosition rows with a committeeId, which the Knesset service
+ * never produces — PositionIDs 41/42/66/67 ("יו״ר ועדה", "חבר ועדה" …) are
+ * defined in KNS_Position but carry zero rows, and not one PersonToPosition row
+ * has a CommitteeID. The member page's committees card was therefore empty for
+ * every member. getCommitteesForMember() replaces it with something derivable:
+ * the committees that actually discussed that member's bills.
+ */
 
 export async function search(q: string, take = 8) {
   if (!q.trim()) return { bills: [], members: [], sessions: [], plenum: [] };
@@ -444,4 +444,134 @@ export async function getTopQuestioners(take = 5) {
   const people = await prisma.person.findMany({ where: { personId: { in: grouped.map((g) => g.personId!) } } });
   const byId = new Map(people.map((p) => [p.personId, p]));
   return grouped.map((g) => ({ person: byId.get(g.personId!)!, asked: g._count })).filter((r) => r.person);
+}
+
+// ---------------------------------------------------------------------------
+// Committees
+// ---------------------------------------------------------------------------
+
+/**
+ * Committees of the term, with how much they actually did.
+ *
+ * The service publishes no membership: PositionIDs 41/42/66/67 ("יו״ר ועדה",
+ * "חבר ועדה" …) are defined in KNS_Position but carry zero rows, and no
+ * PersonToPosition row has a CommitteeID. So a committee is described here by
+ * its activity — sittings held and bills handled — not by who sits on it.
+ */
+export async function listCommittees(knessetNum = 25) {
+  const committees = await prisma.committee.findMany({
+    where: { knessetNum },
+    include: {
+      _count: { select: { sessions: true, subcommittees: true } },
+      parent: { select: { committeeId: true, name: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  // Aggregated in SQL: doing this in JS meant loading every sitting in the
+  // term on each request, and an `IN` over their ids blows SQLite's bound
+  // parameter limit for the busier committees.
+  const counts = await prisma.$queryRaw<Array<{ committeeId: number; billItems: bigint | number }>>`
+    SELECT cs."committeeId" AS "committeeId", COUNT(si."cmtSessionItemId") AS "billItems"
+      FROM "SessionItem" si
+      JOIN "CommitteeSession" cs ON cs."committeeSessionId" = si."committeeSessionId"
+     WHERE si."billId" IS NOT NULL AND cs."committeeId" IS NOT NULL
+     GROUP BY cs."committeeId"
+  `;
+  const byCommittee = new Map(counts.map((c) => [Number(c.committeeId), Number(c.billItems)]));
+
+  return committees.map((c) => ({ ...c, billItems: byCommittee.get(c.committeeId) ?? 0 }));
+}
+
+export async function getCommittee(committeeId: number) {
+  return prisma.committee.findUnique({
+    where: { committeeId },
+    include: {
+      parent: { select: { committeeId: true, name: true } },
+      subcommittees: {
+        select: { committeeId: true, name: true, isCurrent: true, _count: { select: { sessions: true } } },
+        orderBy: { name: "asc" },
+      },
+      jointParticipants: { include: { participant: { select: { committeeId: true, name: true } } } },
+      jointMemberships: { include: { committee: { select: { committeeId: true, name: true } } } },
+      _count: { select: { sessions: true } },
+    },
+  });
+}
+
+export async function getCommitteeSessions(committeeId: number, take = 25) {
+  return prisma.committeeSession.findMany({
+    where: { committeeId },
+    orderBy: { startDate: "desc" },
+    take,
+    include: { _count: { select: { items: true, documents: true } } },
+  });
+}
+
+/** Bills this committee has had on an agenda, most recently discussed first. */
+export async function getCommitteeBills(committeeId: number, take = 25) {
+  // Filter through the relation. Collecting the committee's session ids and
+  // passing them as an `IN` list exceeded SQLite's bound parameter limit —
+  // ועדת הכספים alone has 1,146 sittings.
+  const where = { billId: { not: null }, session: { committeeId } } satisfies Prisma.SessionItemWhereInput;
+
+  // How many times each bill came up, without pulling every row.
+  const grouped = await prisma.sessionItem.groupBy({ by: ["billId"], where, _count: true });
+  const discussions = new Map(grouped.map((g) => [g.billId!, g._count]));
+
+  const rows = await prisma.sessionItem.findMany({
+    where,
+    orderBy: { session: { startDate: "desc" } },
+    distinct: ["billId"],
+    take,
+    include: { bill: { include: { status: true } }, session: { select: { startDate: true } }, status: true },
+  });
+
+  return {
+    rows: rows.map((r) => ({ ...r, discussions: discussions.get(r.billId!) ?? 1 })),
+    total: grouped.length,
+  };
+}
+
+/** Monthly sitting counts, for a committee activity chart. */
+export async function getCommitteeActivity(committeeId: number) {
+  const sessions = await prisma.committeeSession.findMany({
+    where: { committeeId, startDate: { not: null } },
+    select: { startDate: true },
+  });
+  const buckets = new Map<string, number>();
+  for (const s of sessions) {
+    const d = s.startDate!;
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  const keys = [...buckets.keys()].sort();
+  if (keys.length === 0) return [];
+  const [sy, sm] = keys[0].split("-").map(Number);
+  const [ey, em] = keys[keys.length - 1].split("-").map(Number);
+  const out: Array<{ month: string; total: number; lead: number }> = [];
+  for (let y = sy, m = sm; y < ey || (y === ey && m <= em); m === 12 ? ((y += 1), (m = 1)) : (m += 1)) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    // Reuses the member chart's shape: `lead` is unused here.
+    out.push({ month: key, total: buckets.get(key) ?? 0, lead: 0 });
+  }
+  return out;
+}
+
+/** Committees that discussed a given member's bills — a stand-in for the
+ *  membership the service does not publish. */
+export async function getCommitteesForMember(personId: number, take = 8) {
+  const items = await prisma.sessionItem.findMany({
+    where: { billId: { not: null }, bill: { initiators: { some: { personId } } } },
+    include: { session: { select: { committeeId: true, committee: { select: { committeeId: true, name: true } } } } },
+  });
+  const counts = new Map<number, { committeeId: number; name: string; discussions: number }>();
+  for (const i of items) {
+    const c = i.session.committee;
+    if (!c) continue;
+    const e = counts.get(c.committeeId) ?? { committeeId: c.committeeId, name: c.name ?? "—", discussions: 0 };
+    e.discussions += 1;
+    counts.set(c.committeeId, e);
+  }
+  return [...counts.values()].sort((a, b) => b.discussions - a.discussions).slice(0, take);
 }

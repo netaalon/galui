@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users } from "lucide-react";
+import { FileText, Gavel, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
@@ -12,6 +12,7 @@ const links = [
   { href: "/", label: "ראשי", icon: LayoutDashboard },
   { href: "/bills", label: "הצעות חוק", icon: FileText },
   { href: "/plenum", label: "מליאה", icon: Speech },
+  { href: "/committees", label: "ועדות", icon: Gavel },
   { href: "/questions", label: "שאילתות", icon: MessageCircleQuestion },
   { href: "/members", label: "חברי כנסת", icon: Users },
 ] as const;
@@ -27,7 +28,7 @@ export function Navbar() {
           <span className="text-lg tracking-tight">גלוי</span>
         </Link>
 
-        <nav className="flex items-center gap-1" aria-label="ניווט ראשי">
+        <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="ניווט ראשי">
           {links.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (
@@ -36,14 +37,14 @@ export function Navbar() {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors lg:px-2.5",
                   active
                     ? "bg-secondary text-secondary-foreground"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
                 )}
               >
                 <Icon className="size-4" />
-                <span className="hidden sm:inline">{label}</span>
+                <span className="hidden lg:inline">{label}</span>
               </Link>
             );
           })}

@@ -67,6 +67,7 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_PlenumSession` | `PlenumSession` | All ~418 sittings of the term |
 | `KNS_PlmSessionItem` | `PlenumSessionItem` | Junction: bill ↔ sitting, **with the reading stage** |
 | `KNS_DocumentPlenumSession` | `PlenumDocument` | Transcripts ("דברי הכנסת", stenograms) |
+| `KNS_JointCommittee` | `JointCommittee` | Which committees make up a joint one |
 | `KNS_Query` | `Question` | Written questions to ministers, with both reply dates |
 | `KNS_DocumentQuery` | `QuestionDocument` | The question text and the minister's reply |
 | `KNS_GovMinistry` | `GovMinistry` | |
@@ -123,6 +124,14 @@ Things worth knowing, all verified against the live service:
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format, so rows are stored under a synthetic
   `"<documentId>:<applicationId>"` id.
+- **Committee membership does not exist in the service.** The position types
+  "יו״ר ועדה" (41) and "חבר ועדה" (42), along with 66/67/663, are defined in
+  `KNS_Position` but have **zero rows** in `KNS_PersonToPosition` across every
+  Knesset, and not one row there carries a `CommitteeID`. Committees are
+  therefore described by what they did — sittings held, bills handled — and a
+  member's committees are those that discussed their bills, which is derivable.
+- **`KNS_JointCommittee.JointCommitteeID` is not unique** despite being the
+  declared key (the value "1" recurs); the real key is the committee pair.
 - **Written questions carry their own accountability data.** `KNS_Query` gives
   both when a reply was due (`ReplyDatePlanned`) and when it arrived
   (`ReplyMinisterDate`), so lateness is arithmetic rather than inference. Of the
@@ -183,6 +192,10 @@ Things worth knowing, all verified against the live service:
   bloc, bills sponsored or seniority, with a serving-only filter. Detail pages
   add a Recharts bar chart of bills sponsored per month (split lead vs.
   co-signed), committees, and recent bills.
+- `/committees`, `/committees/[id]` — the term's committees grouped by type,
+  and per committee its sitting rhythm, the bills it handled, its recent
+  sittings, its subcommittees and — for a joint committee — the committees that
+  make it up.
 - `/questions` — written questions (שאילתות) to ministers, sortable by lateness,
   filterable by answered / pending / late, with a per-ministry breakdown.
 - `/search` — across bills, members, sittings and sessions in the local mirror.

@@ -38,6 +38,8 @@ async function check(path, fn) {
     /\bfileLink=0(?!\d)/, /\bofficialIdOk=false\b/, /\brows=0(?!\d)/,
     /\bstatCards=0(?!\d)/, /\boverdueSortDescending=false\b/,
     /\bfullNameSearch=0(?!\d)/, /\bmemberQuestionsCard=0(?!\d)/, /\bquestionRows=0(?!\d)/,
+    /\bcommittee cards=0(?!\d)/, /\btypeGroups=0(?!\d)/, /\bcommitteeBars=0(?!\d)/,
+    /\bcommitteeBills=0(?!\d)/, /\bmemberCommittees=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -121,6 +123,21 @@ await check("/", async () => {
   return `search navigated to ${new URL(page.url()).pathname} h1="${heading}" sections=${cards}`;
 });
 
+await check("/committees", async () => {
+  const cards = await page.locator('a[href^="/committees/"]').count();
+  const groups = await page.locator("section > h2").count();
+  return `committee cards=${cards} typeGroups=${groups}`;
+});
+
+// The busiest committee: 1,146 sittings once blew SQLite's bound-parameter
+// limit when its session ids were passed as an IN list.
+await check("/committees/4186", async () => {
+  await page.waitForSelector(".recharts-bar-rectangle", { timeout: 15000 }).catch(() => {});
+  const bars = await page.locator(".recharts-bar-rectangle").count();
+  const bills = await page.locator('a[href^="/bills/"]').count();
+  return `committeeBars=${bars} committeeBills=${bills}`;
+});
+
 // Written questions: the accountability figures and the sort must both work.
 await check("/questions", async () => {
   const rows = await page.locator("text=/הוגשה /").count();
@@ -142,7 +159,10 @@ await check("/members?q=%D7%A2%D7%95%D7%A4%D7%A8%20%D7%9B%D7%A1%D7%99%D7%A3", as
 await check("/members/30719", async () => {
   const card = await page.locator("text=/שאילתות לשרי הממשלה/").count();
   const rows = await page.locator("text=/הוגשה /").count();
-  return `memberQuestionsCard=${card} questionRows=${rows}`;
+  // The committees card used to read PersonPosition.committeeId, which the
+  // service never populates, so it was empty for everyone.
+  const committees = await page.locator('aside a[href^="/committees/"]').count();
+  return `memberQuestionsCard=${card} questionRows=${rows} memberCommittees=${committees}`;
 });
 
 await check("/members", async () => {
