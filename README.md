@@ -292,6 +292,15 @@ The provider HTTP calls are written to each vendor's documented shape but have
 **never been executed** — no API key was available. Treat the first live run as
 the integration test ([#5](https://github.com/netaalon/galui/issues/5)).
 
+## For contributors and coding agents
+
+`.claude/skills/` holds four references written from what this project has
+already learned the hard way — `knesset-odata` (the API's undocumented limits,
+non-unique keys and misleading fields), `galui-architecture` (layout, data flow,
+conventions), `contributing-to-galui` (how work here is verified) and
+`hebrew-and-rtl` (name matching, document parsing, RTL layout traps).
+`AGENTS.md` points at them too.
+
 ## What's next
 
 Planned work is tracked in [issues](https://github.com/netaalon/galui/issues) —
