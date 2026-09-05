@@ -7,7 +7,7 @@
  *
  * For members the id join cannot reach, a second, weaker pass matches on name
  * and requires a human to check the faces before anything is stored:
- *   npx tsx scripts/fetch-photos.ts --propose       # writes photo-review.{json,html}
+ *   npx tsx scripts/fetch-photos.ts --propose       # photo-review.json + public/photo-review.html
  *   npx tsx scripts/fetch-photos.ts --apply-review  # writes only approve:true entries
  *
  * Deliberately separate from fetch-odata.ts. The Knesset OData service exposes
@@ -47,7 +47,9 @@ const PROPOSE = process.argv.includes("--propose");
 const APPLY_REVIEW = process.argv.includes("--apply-review");
 
 const REVIEW_JSON = "photo-review.json";
-const REVIEW_HTML = "photo-review.html";
+// Written into public/ so the running dev server serves it — the reviewer
+// may not share a filesystem with whatever produced it.
+const REVIEW_HTML = "public/photo-review.html";
 
 /** Wikidata: the position "Knesset member". */
 const Q_KNESSET_MEMBER = "Q4047513";
@@ -262,7 +264,7 @@ async function proposeByName() {
   writeFileSync(REVIEW_JSON, JSON.stringify(candidates, null, 2), "utf8");
   writeFileSync(REVIEW_HTML, renderReview(candidates), "utf8");
   console.log(`\n${candidates.length} candidates written to ${REVIEW_JSON}`);
-  console.log(`Open ${REVIEW_HTML} in a browser and check every face against the name.`);
+  console.log(`Open http://localhost:3000/photo-review.html and check every face against the name.`);
   console.log(`Then set "approve": true on the ones that are right and run:`);
   console.log(`  npx tsx scripts/fetch-photos.ts --apply-review`);
 }

@@ -184,7 +184,24 @@ Only free licences are accepted (CC*, CC0, public domain); anything else is
 skipped. Credit, licence and a link to the Commons file page are stored
 alongside the URL and rendered on the member page — CC BY-SA requires it.
 
-Coverage is **120 of 151 members, 94 of 120 serving**. The rest fall back to
+Many members' Wikidata items carry a photo but no P9770, so a second, weaker
+pass matches on name — behind a review gate, because a wrong name match does not
+fail visibly, it puts a real person's face on the wrong MK:
+
+```bash
+npm run photos -- --propose        # stages candidates, writes nothing
+# open http://localhost:3000/photo-review.html and check every face
+npm run photos -- --apply-review   # writes only entries set to approve: true
+```
+
+The proposal requires the Wikidata label to equal our name once normalised, the
+item to hold the position "Knesset member" (Q4047513), and the name to resolve
+to exactly one such item; ambiguity is rejected rather than guessed. Each card
+also shows the party Wikidata holds against the faction we hold — a second,
+independent signal, though it only flags and cannot catch a swap between two
+members of the same party. The faces are the real gate.
+
+Coverage is **138 of 151 members, 108 of 120 serving**. The rest fall back to
 initials, which is a normal state rather than a failure.
 
 ## Phase 2 — who spoke in committee (stub)
