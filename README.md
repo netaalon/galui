@@ -44,6 +44,7 @@ primary key.
 | `npm run ingest` | ETL from the Knesset OData API |
 | `npm run ingest -- --bills=100 --sessions=100` | Small slice, for quick local iteration |
 | `npm run photos` | Fetch MK headshots from Wikimedia Commons |
+| `npm run attendance` | Parse committee attendance from protocols and load it |
 | `npm run extract-participants` | Phase 2 LLM protocol extraction (see below) |
 | `npm run db:studio` | Browse the local database |
 | `npm run typecheck` / `npm run lint` | Checks |
@@ -73,9 +74,11 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_GovMinistry` | `GovMinistry` | |
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
 
-A full run mirrors roughly: 7,587 bills · 17,332 sponsorships · 10,895 committee
+A full run mirrors: 7,587 bills · 17,332 sponsorships · 10,895 committee
 sittings · 13,837 agenda items · 418 plenum sittings · 13,431 plenum items ·
-1,580 written questions · 69,000 documents. The SQLite file lands around 35 MB.
+1,580 written questions · 69,419 documents. Adding protocol attendance
+(`npm run attendance`) contributes a further 52,061 rows. The SQLite file lands
+around 45 MB.
 
 Things worth knowing, all verified against the live service:
 
@@ -175,26 +178,26 @@ Things worth knowing, all verified against the live service:
 
 ## Views
 
-- `/` — counts, 5 most recently updated bills, 5 most recent committee sessions,
-  plus upcoming sessions.
-- `/bills`, `/bills/[id]` — bill metadata, summary, sponsors, and a vertical
-  list of its own texts (what was laid before the Knesset at each reading, in
-  every published format), and a vertical timeline interleaving, in date order:
-  plenum tablings and readings (labelled
-  with their stage, and flagged when actually debated), every committee
-  discussion, publication in the gazette, and current status — each with direct
-  links to the relevant protocol or transcript files.
+- `/` — counts, the bills most recently tabled, recent committee and plenum
+  sittings, and what is scheduled next.
+- `/bills`, `/bills/[id]` — bill metadata, summary and sponsors; the bill's own
+  texts, being what was laid before the Knesset at each reading in every
+  published format; and a vertical timeline interleaving, in date order, plenum
+  tablings and readings (labelled with their stage, and flagged when actually
+  debated), every committee discussion, publication in the gazette, and current
+  status — each with direct links to the relevant files.
 - `/plenum`, `/plenum/[id]` — plenum sittings, and per sitting the bills on its
   agenda with the stage each reached, other agenda items, and its transcripts.
 - `/members`, `/members/[id]` — member cards showing faction, coalition or
   opposition, and any role in the sitting government; sortable by name, faction,
   bloc, bills sponsored or seniority, with a serving-only filter. Detail pages
   add a Recharts bar chart of bills sponsored per month (split lead vs.
-  co-signed), committees, and recent bills.
+  co-signed), the committees they actually sat in, their written questions with
+  how promptly those were answered, and recent bills.
 - `/committees`, `/committees/[id]` — the term's committees grouped by type,
-  and per committee its sitting rhythm, the bills it handled, its recent
-  sittings, its subcommittees and — for a joint committee — the committees that
-  make it up.
+  and per committee its membership (derived from protocol attendance, with the
+  chair marked), sitting rhythm, the bills it handled, recent sittings,
+  subcommittees and — for a joint committee — the committees that make it up.
 - `/questions` — written questions (שאילתות) to ministers, sortable by lateness,
   filterable by answered / pending / late, with a per-ministry breakdown.
 - `/search` — across bills, members, sittings and sessions in the local mirror.
@@ -207,9 +210,8 @@ with the chair marked. `scripts/protocols/` parses that deterministically — no
 LLM:
 
 ```bash
-python3 scripts/protocols/extract_attendance.py   # ~20 min, writes data/attendance.jsonl
-npx tsx scripts/load-attendance.ts                # matches names, stores rows
-python3 scripts/protocols/verify.py               # re-run the accuracy check
+npm run attendance                    # both stages, ~20 min
+python3 scripts/protocols/verify.py   # re-run the accuracy check
 ```
 
 Over 9,043 protocols: **52,455 member and MK names extracted, 98.8% resolved to
@@ -269,23 +271,23 @@ members of the same party. The faces are the real gate.
 Coverage is **138 of 151 members, 108 of 120 serving**. The rest fall back to
 initials, which is a normal state rather than a failure.
 
-## Phase 2 — who spoke in committee (stub)
+## Phase 2 — who spoke, and how much (stub)
 
-The API publishes protocol *files* but never says who spoke. That gap is filled
-by an LLM pass writing into the `CommitteeParticipant` table.
+Attendance is already solved deterministically (above). What the protocol header
+does *not* carry is the body: who spoke, how often, and about what.
+`scripts/extract_participants_llm.ts` is the stub for that, writing speaking
+turns into the same `CommitteeParticipant` table.
 
 ```bash
-# protocols are legacy .doc — convert one first
-curl -sL "<SessionDocument.filePath>" -o p.doc
-libreoffice --headless --convert-to txt p.doc
-
 npx tsx scripts/extract_participants_llm.ts --session=2244838 --file=p.txt --dry-run
 ```
 
+Protocol text comes from `scripts/protocols/extract_text.py`. Note the service
+lists protocols as `.doc` but they are **OOXML** — the Python standard library
+reads them directly, and no converter (antiword, catdoc, LibreOffice) is needed.
+
 `--provider` accepts `openai` | `gemini` | `anthropic`; set the matching
 `*_API_KEY`. The system prompt lives in `prompts/extract-participants.he.txt`.
-Extracted speakers are matched to `Person` rows by exact full name; anything
-ambiguous is stored unmatched rather than guessed.
 
 **Status:** parsing, MK name-matching and persistence are tested and working.
 The provider HTTP calls are written to each vendor's documented shape but have
@@ -303,6 +305,8 @@ conventions), `contributing-to-galui` (how work here is verified) and
 
 ## What's next
 
-Planned work is tracked in [issues](https://github.com/netaalon/galui/issues) —
-extracting the דברי הסבר explanatory notes from bill PDFs (#1), ingesting the
-full Knesset 25 corpus (#2), incremental ingestion (#3) and full-text search (#4).
+Planned work is tracked in [issues](https://github.com/netaalon/galui/issues).
+The nearest are extracting the דברי הסבר explanatory notes from bill PDFs (#1),
+which would give 93% of bills the substance they currently lack; linking split
+and merged bills (#18); full-text search (#4 over metadata, #17 over document
+text); and voting data from protocols (#11).
