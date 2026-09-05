@@ -127,11 +127,11 @@ Things worth knowing, all verified against the live service:
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format, so rows are stored under a synthetic
   `"<documentId>:<applicationId>"` id.
-- **Committee membership does not exist in the service.** The position types
-  "יו״ר ועדה" (41) and "חבר ועדה" (42), along with 66/67/663, are defined in
-  `KNS_Position` but have **zero rows** in `KNS_PersonToPosition` across every
-  Knesset, and not one row there carries a `CommitteeID`. It is recovered from
-  the protocols instead — see below.
+- **Committee membership is absent from the feed this project reads.** The
+  position types "יו״ר ועדה" (41) and "חבר ועדה" (42) have zero rows in
+  `KNS_PersonToPosition` here, and no row carries a `CommitteeID`. It is
+  recovered from the protocols instead — see below. Note it *is* published in
+  the newer v4 feed (12,628 rows, 1,632 for Knesset 25); see #19.
 - **`KNS_JointCommittee.JointCommitteeID` is not unique** despite being the
   declared key (the value "1" recurs); the real key is the committee pair.
 - **Written questions carry their own accountability data.** `KNS_Query` gives

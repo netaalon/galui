@@ -183,7 +183,7 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
               <CardDescription>
                 {attended.length > 0
                   ? "לפי נוכחות בפרוטוקולים; המספר הוא מספר הישיבות."
-                  : "חברוּת בוועדות אינה מתפרסמת ב־API; אלה הוועדות שדנו בהצעות החוק של חבר/ת הכנסת."}
+                  : "אלה הוועדות שדנו בהצעות החוק של חבר/ת הכנסת."}
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -225,8 +225,8 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
             <CardHeader>
               <CardTitle>הרכב</CardTitle>
               <CardDescription>
-                לפי נוכחות בפועל בפרוטוקולים — ה־API של הכנסת אינו מפרסם את הרכב
-                הוועדות. מי שלא נכח בישיבה אינו מופיע כאן.
+                לפי נוכחות בפועל בפרוטוקולים, ולא לפי ההרכב הרשמי — מי שלא נכח
+                בישיבה אינו מופיע כאן.
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -5,8 +5,15 @@ description: Hard-won facts about the Knesset OData API (ParliamentInfo.svc) —
 
 # The Knesset OData API
 
-`https://knesset.gov.il/Odata/ParliamentInfo.svc` is the **only** sanctioned source
-for legislative data in this project. Do not add HTML scrapers for
+> **There are two feeds, and this project is on the older one.** Everything below
+> describes `https://knesset.gov.il/Odata/ParliamentInfo.svc` (v2/v3), which the
+> Knesset documents as deprecated and intends to stop publishing. The v4 feed at
+> `https://knesset.gov.il/OdataV4/ParliamentInfo` has more entities and fixes
+> some of the defects listed here — see "The v4 feed" at the end and issue #19
+> before assuming a limitation still applies.
+
+The Knesset OData service is the **only** sanctioned source for legislative data
+in this project. Do not add HTML scrapers for
 knesset.gov.il, and do not pull from oknesset.org or hasadna/knesset-data-pipelines
 — their data predates changes the Knesset has since made, which is exactly how
 you end up publishing something that is confidently wrong.
@@ -14,14 +21,16 @@ you end up publishing something that is confidently wrong.
 Reading the hasadna *pipeline code* to discover which official endpoint they
 call is fine. Using their data is not.
 
-## Only two services exist
+## Which services exist
 
-`ParliamentInfo.svc` and `Votes.svc`. Seventeen other plausible names were
-swept; everything else 302s. There is no committee service, no members service,
-no lobbyist service.
+Under `/Odata/`: `ParliamentInfo.svc` and `Votes.svc` only — seventeen other
+plausible names were swept and everything else 302s. Separately there is the v4
+feed at `/OdataV4/ParliamentInfo`.
 
 `Votes.svc` is well shaped but its most recent vote is **2021-07-13** and it
-holds **zero rows for Knesset 25**. See issue #10 before spending time on it.
+holds **zero rows for Knesset 25**. Voting data does exist — in v4's
+`KNS_PlenumVote` / `KNS_PlenumVoteResult`, current and carrying a numeric
+`MkId`. See #19 and #11.
 
 ## Limits that are not documented
 
@@ -43,7 +52,7 @@ holds **zero rows for Knesset 25**. See issue #10 before spending time on it.
 | Expectation | Reality |
 |---|---|
 | `KNS_MkIndividual` | **Does not exist.** MK status is derived from `KNS_PersonToPosition` rows with `PositionID` 43 (חבר הכנסת) or 61 (חברת הכנסת); faction comes from the `PositionID` 54 row. |
-| Committee membership | **Does not exist anywhere.** `PositionID` 41/42/66/67/663 are defined in `KNS_Position` but have zero rows, and not one `KNS_PersonToPosition` row carries a `CommitteeID` — verified by fetching all 11,102. It is recovered from protocol headers instead; see `scripts/protocols/`. |
+| Committee membership | **Absent from this feed** — `PositionID` 41/42/66/67 have zero rows and no `KNS_PersonToPosition` row carries a `CommitteeID`, verified across all 11,102. But it **is present in v4**: 12,628 rows with a `CommitteeID`, 1,632 for Knesset 25. Until that is ingested, membership is derived from protocol attendance; see `scripts/protocols/`. |
 | A bill's explanation | `KNS_Bill.SummaryLaw` is populated **only after a bill passes third reading** (7% of bills). For everything else the explanation is in the PDF. |
 | Member photos | No image field, and no working endpoint. `GetMkImage` returns the literal string `"value"`. Photos come from Wikimedia Commons; see `scripts/fetch-photos.ts`. |
 
@@ -56,6 +65,8 @@ trusting one.**
   — the same document is published once per format (DOC and PDF) as two rows
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format. Stored as `"<documentId>:<applicationId>"`.
+  **The manual lists this as a v2 defect fixed in v4**, and it is: the session
+  that returns 3 rows with 1 distinct id here returns 3 distinct ids there.
 - `KNS_JointCommittee` — `JointCommitteeID` is `"1"` on many rows. Keyed on the
   committee pair instead.
 - `KNS_DocumentQuery` — genuinely issues a distinct id per format, so the id
@@ -106,3 +117,33 @@ what makes the URL-length limit the binding constraint on a full run. Use
   lateness is arithmetic on given fields rather than inference.
 - `KNS_GovMinistry` contains duplicates and placeholders ("אין נתונים"); group on
   the id, label with the name.
+
+## The v4 feed
+
+`https://knesset.gov.il/OdataV4/ParliamentInfo` — 48 entity sets against v2's 38,
+and the one the Knesset tells users to move to. Official manual:
+`https://main.knesset.gov.il/Activity/Info/documents/KnessetOdataManual.docx`
+(a .docx; `scripts/protocols/extract_text.py` reads it).
+
+Only in v4:
+
+- `KNS_PlenumVote` (36,183) and `KNS_PlenumVoteResult` (1,953,709) — plenum votes
+  with per-MK results, current, keyed on a numeric `MkId` so no name matching.
+- `V_Lobbyists`, `V_LobbyistsClients`.
+- `KNS_SecondaryLaw` (60,297) and the secondary-legislation and law-correction
+  tables.
+- Committee membership rows in `KNS_PersonToPosition`.
+
+Differences that break a naive port:
+
+- **Every primary key is renamed `Id`** (`BillID` → `ID`, `PersonID` → `ID`).
+- `$count=true` and `@odata.count`, not `$inlinecount=allpages`.
+- `KNS_DocumentQuery` is renamed `KNS_DocumentQuerie`; `KNS_Law` is folded into
+  other tables; `KNS_Bill` gains `TypeID`, `TypeDesc`,
+  `PublicationSeriesFirstCallDesc`.
+- **The 100-row page cap is unchanged**, so paging and URL-length budgeting still
+  apply.
+
+Still absent in v4: per-MK coalition/opposition membership. Only the two
+leadership posts exist (`PositionID` 30 and 131, one row each for Knesset 25),
+so the curated map in `src/lib/factions.ts` is still needed.
