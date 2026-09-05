@@ -1,0 +1,386 @@
+// Galui — Knesset legislative activity tracker
+// Schema mirrors the official Knesset OData v3 service (ParliamentInfo.svc).
+// Hebrew payloads are stored as-is; all column names are English.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// KNS_Person + denormalised MK facts derived from KNS_PersonToPosition.
+/// The OData service has no KNS_MkIndividual entity, so "is this person an MK"
+/// is resolved from PersonToPosition rows with PositionID 43 / 61.
+model Person {
+  personId    Int     @id
+  firstName   String?
+  lastName    String?
+  genderDesc  String?
+  email       String?
+  isCurrent   Boolean @default(false)
+
+  /// True when the person holds/held an MK position in `knessetNum`.
+  isMk        Boolean @default(false)
+  knessetNum  Int?
+  /// Current faction, taken from the PositionID 54 row.
+  factionId   Int?
+  factionName String?
+  /// Highest-profile non-MK role (minister, committee chair...), for display.
+  roleDesc    String?
+  mkStartDate DateTime?
+  mkEndDate   DateTime?
+
+  /// KNS_MkSiteCode.MKSiteCode — stable id used by knesset.gov.il member pages.
+  mkSiteCode  String?
+  /// No public headshot endpoint exists on the OData service; left null by the
+  /// ETL and rendered as an initials avatar until a licensed source is wired up.
+  imageUrl    String?
+
+  lastUpdatedDate DateTime?
+
+  positions  PersonPosition[]
+  billsInitiated BillInitiator[]
+  participations CommitteeParticipant[]
+
+  @@index([isMk, knessetNum])
+  @@index([lastName])
+}
+
+/// KNS_PersonToPosition — one row per role a person holds in a Knesset term.
+model PersonPosition {
+  personToPositionId Int     @id
+  personId           Int
+  positionId         Int
+  positionDesc       String?
+  knessetNum         Int?
+  startDate          DateTime?
+  finishDate         DateTime?
+  factionId          Int?
+  factionName        String?
+  dutyDesc           String?
+  committeeId        Int?
+  committeeName      String?
+  govMinistryName    String?
+  isCurrent          Boolean @default(false)
+  lastUpdatedDate    DateTime?
+
+  person Person @relation(fields: [personId], references: [personId], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([positionId, knessetNum])
+}
+
+/// KNS_Faction
+model Faction {
+  factionId  Int     @id
+  name       String?
+  knessetNum Int?
+  startDate  DateTime?
+  finishDate DateTime?
+  isCurrent  Boolean @default(false)
+  lastUpdatedDate DateTime?
+
+  @@index([knessetNum])
+}
+
+/// KNS_Committee
+model Committee {
+  committeeId       Int     @id
+  name              String?
+  categoryDesc      String?
+  knessetNum        Int?
+  committeeTypeDesc String?
+  parentCommitteeId Int?
+  parentName        String?
+  isCurrent         Boolean @default(false)
+  lastUpdatedDate   DateTime?
+
+  sessions CommitteeSession[]
+  bills    Bill[]
+
+  @@index([knessetNum])
+}
+
+/// KNS_Status — resolves StatusID on bills and session items to Hebrew labels.
+model Status {
+  statusId Int     @id
+  desc     String?
+  typeDesc String?
+  isActive Boolean @default(true)
+
+  bills        Bill[]
+  sessionItems SessionItem[]
+  plenumItems  PlenumSessionItem[]
+}
+
+/// KNS_Bill
+model Bill {
+  billId       Int     @id
+  knessetNum   Int?
+  name         String?
+  subTypeId    Int?
+  /// "פרטית" (private member's bill) / "ממשלתית" (government bill) / ...
+  subTypeDesc  String?
+  privateNumber Int?
+  number       Int?
+  committeeId  Int?
+  statusId     Int?
+  postponementReasonDesc String?
+  publicationDate DateTime?
+  summaryLaw   String?
+  publicationSeriesDesc String?
+  isContinuationBill Boolean?
+  lastUpdatedDate DateTime?
+
+  committee  Committee?    @relation(fields: [committeeId], references: [committeeId], onDelete: SetNull)
+  status     Status?       @relation(fields: [statusId], references: [statusId], onDelete: SetNull)
+  initiators   BillInitiator[]
+  sessionItems SessionItem[]
+  plenumItems  PlenumSessionItem[]
+  documents    BillDocument[]
+
+  @@index([knessetNum, lastUpdatedDate])
+  @@index([publicationDate])
+  @@index([committeeId])
+}
+
+/// KNS_BillInitiator — sponsors of a bill. `isInitiator` marks the lead sponsor.
+model BillInitiator {
+  billInitiatorId Int     @id
+  billId          Int
+  personId        Int
+  isInitiator     Boolean @default(false)
+  ordinal         Int?
+  lastUpdatedDate DateTime?
+
+  bill   Bill   @relation(fields: [billId], references: [billId], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [personId], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([personId])
+}
+
+/// KNS_CommitteeSession
+model CommitteeSession {
+  committeeSessionId Int     @id
+  number             Int?
+  knessetNum         Int?
+  typeDesc           String?
+  committeeId        Int?
+  statusDesc         String?
+  location           String?
+  sessionUrl         String?
+  broadcastUrl       String?
+  startDate          DateTime?
+  finishDate         DateTime?
+  note               String?
+  lastUpdatedDate    DateTime?
+
+  committee    Committee?  @relation(fields: [committeeId], references: [committeeId], onDelete: SetNull)
+  items        SessionItem[]
+  documents    SessionDocument[]
+  participants CommitteeParticipant[]
+
+  @@index([knessetNum, startDate])
+  @@index([committeeId])
+}
+
+/// KNS_CmtSessionItem — junction between a committee session and an agenda item.
+/// When `itemTypeId` is 2 the item is a bill and `itemId` is a KNS_Bill.BillID;
+/// `billId` is populated only when that bill is present locally.
+model SessionItem {
+  cmtSessionItemId   Int     @id
+  itemId             Int?
+  itemTypeId         Int?
+  itemTypeDesc       String?
+  committeeSessionId Int
+  billId             Int?
+  ordinal            Int?
+  statusId           Int?
+  name               String?
+  lastUpdatedDate    DateTime?
+
+  session CommitteeSession @relation(fields: [committeeSessionId], references: [committeeSessionId], onDelete: Cascade)
+  bill    Bill?            @relation(fields: [billId], references: [billId], onDelete: SetNull)
+  status  Status?          @relation(fields: [statusId], references: [statusId], onDelete: SetNull)
+
+  @@index([committeeSessionId])
+  @@index([billId])
+  @@index([itemTypeId, itemId])
+}
+
+/// KNS_DocumentCommitteeSession — protocol files (DOC/PDF) per session.
+/// `filePath` is the input for the Phase 2 LLM participant extraction.
+///
+/// NOTE ON THE KEY: the OData $metadata declares the document id as the entity
+/// key, but it is not unique — the same document is published in several
+/// formats (DOC and PDF) as separate rows sharing one id, distinguished only by
+/// ApplicationID. Keying on the id alone silently drops every alternate format,
+/// so rows are stored under a synthetic "<documentId>:<applicationId>" id with
+/// the natural pair kept unique.
+model SessionDocument {
+  id                         String @id
+  documentCommitteeSessionId String
+  applicationId              Int    @default(0)
+  committeeSessionId Int
+  groupTypeId        Int?
+  groupTypeDesc      String?
+  applicationDesc    String?
+  filePath           String?
+  lastUpdatedDate    DateTime?
+
+  session CommitteeSession @relation(fields: [committeeSessionId], references: [committeeSessionId], onDelete: Cascade)
+  participants CommitteeParticipant[]
+
+  @@unique([documentCommitteeSessionId, applicationId])
+  @@index([committeeSessionId])
+}
+
+/// Phase 2 (stub) — who actually spoke in a committee session.
+/// The OData service does not expose this; rows are produced by the LLM
+/// pipeline in scripts/extract_participants_llm.ts reading `SessionDocument.filePath`.
+model CommitteeParticipant {
+  id                 Int     @id @default(autoincrement())
+  committeeSessionId Int
+  personId           Int?
+  /// Raw speaker name as it appears in the protocol, before matching to a Person.
+  speakerName        String?
+  /// e.g. "chair", "mk", "minister", "guest", "advisor"
+  role               String?
+  timesSpoken        Int     @default(0)
+
+  sourceDocumentId   String?
+  /// Model confidence 0-1 for the person match; null when unmatched.
+  matchConfidence    Float?
+  extractedAt        DateTime @default(now())
+  extractionModel    String?
+
+  session  CommitteeSession @relation(fields: [committeeSessionId], references: [committeeSessionId], onDelete: Cascade)
+  person   Person?          @relation(fields: [personId], references: [personId], onDelete: SetNull)
+  document SessionDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+
+  @@unique([committeeSessionId, speakerName])
+  @@index([personId])
+  @@index([committeeSessionId])
+}
+
+/// Bookkeeping so the ETL can run incrementally off LastUpdatedDate.
+model IngestRun {
+  id          Int      @id @default(autoincrement())
+  entity      String
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  rowsFetched Int      @default(0)
+  rowsWritten Int      @default(0)
+  ok          Boolean  @default(false)
+  message     String?
+
+  @@index([entity, startedAt])
+}
+
+/// KNS_PlenumSession — a sitting of the Knesset plenum (המליאה).
+model PlenumSession {
+  plenumSessionId  Int     @id
+  number           Int?
+  knessetNum       Int?
+  name             String?
+  startDate        DateTime?
+  finishDate       DateTime?
+  isSpecialMeeting Boolean @default(false)
+  lastUpdatedDate  DateTime?
+
+  items     PlenumSessionItem[]
+  documents PlenumDocument[]
+
+  @@index([knessetNum, startDate])
+}
+
+/// KNS_PlmSessionItem — an item on a plenum sitting's agenda.
+///
+/// For bills (`itemTypeId` 2) `statusId` is the legislative stage the item
+/// represents — "הונחה על שולחן הכנסת לקריאה ראשונה", "לדיון במליאה לקראת קריאה
+/// שלישית", "התקבלה בקריאה שלישית" — which is what turns a list of sittings
+/// into a readable reading history.
+///
+/// Note the upstream primary key is `plmPlenumSessionID`, which despite the
+/// name identifies the *item*, not the sitting; `plenumSessionId` is the FK.
+model PlenumSessionItem {
+  plmSessionItemId Int     @id
+  itemId           Int?
+  itemTypeId       Int?
+  itemTypeDesc     String?
+  plenumSessionId  Int
+  billId           Int?
+  ordinal          Int?
+  statusId         Int?
+  name             String?
+  /// True when the item was actually debated; false when merely tabled.
+  isDiscussion     Boolean @default(false)
+  lastUpdatedDate  DateTime?
+
+  session PlenumSession @relation(fields: [plenumSessionId], references: [plenumSessionId], onDelete: Cascade)
+  bill    Bill?         @relation(fields: [billId], references: [billId], onDelete: SetNull)
+  status  Status?       @relation(fields: [statusId], references: [statusId], onDelete: SetNull)
+
+  @@index([plenumSessionId])
+  @@index([billId])
+  @@index([itemTypeId, itemId])
+}
+
+/// KNS_DocumentPlenumSession — plenum transcripts ("דברי הכנסת") and related files.
+///
+/// NOTE ON THE KEY: the OData $metadata declares the document id as the entity
+/// key, but it is not unique — the same document is published in several
+/// formats (DOC and PDF) as separate rows sharing one id, distinguished only by
+/// ApplicationID. Keying on the id alone silently drops every alternate format,
+/// so rows are stored under a synthetic "<documentId>:<applicationId>" id with
+/// the natural pair kept unique.
+model PlenumDocument {
+  id                      String @id
+  documentPlenumSessionId String
+  applicationId           Int    @default(0)
+  plenumSessionId         Int
+  groupTypeId             Int?
+  groupTypeDesc           String?
+  applicationDesc         String?
+  filePath                String?
+  lastUpdatedDate         DateTime?
+
+  session PlenumSession @relation(fields: [plenumSessionId], references: [plenumSessionId], onDelete: Cascade)
+
+  @@unique([documentPlenumSessionId, applicationId])
+  @@index([plenumSessionId])
+}
+
+/// KNS_DocumentBill — the bill's own texts and attachments.
+///
+/// This is where the actual proposal lives: the text laid before the Knesset at
+/// each reading, the enacted law, and background material. `groupTypeId` runs
+/// in legislative order — 1 preliminary, 2 first reading, 4/5 second-third,
+/// 8/9 the enacted law, 59 background — so ordering by it reads as progression.
+///
+/// NOTE ON THE KEY: the OData $metadata declares the document id as the entity
+/// key, but it is not unique — the same document is published in several
+/// formats (DOC and PDF) as separate rows sharing one id, distinguished only by
+/// ApplicationID. Keying on the id alone silently drops every alternate format,
+/// so rows are stored under a synthetic "<documentId>:<applicationId>" id with
+/// the natural pair kept unique.
+model BillDocument {
+  id              String  @id
+  documentBillId  String
+  applicationId   Int     @default(0)
+  billId          Int
+  groupTypeId     Int?
+  groupTypeDesc   String?
+  applicationDesc String?
+  filePath        String?
+  lastUpdatedDate DateTime?
+
+  bill Bill @relation(fields: [billId], references: [billId], onDelete: Cascade)
+
+  @@unique([documentBillId, applicationId])
+  @@index([billId, groupTypeId])
+}
