@@ -57,6 +57,12 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
               <dd className="text-foreground">{bill.committee.name}</dd>
             </div>
           ) : null}
+          {bill.firstStepDate ? (
+            <div className="flex gap-1.5">
+              <dt>הונחה:</dt>
+              <dd className="text-foreground">{formatDate(bill.firstStepDate)}</dd>
+            </div>
+          ) : null}
           {bill.publicationDate ? (
             <div className="flex gap-1.5">
               <dt>פורסם:</dt>

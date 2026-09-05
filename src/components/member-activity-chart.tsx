@@ -28,21 +28,23 @@ export function MemberActivityChart({ data }: { data: ActivityPoint[] }) {
     <div dir="ltr" className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="label"
             tickLine={false}
             axisLine={false}
-            tick={{ fontSize: 11 }}
-            className="fill-muted-foreground"
+            // Recharts writes `fill` as an SVG attribute, which overrides a
+            // Tailwind class — the token has to go through the tick prop or the
+            // labels stay a hardcoded grey that is unreadable in dark mode.
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
             interval="preserveStartEnd"
+            minTickGap={16}
           />
           <YAxis
             allowDecimals={false}
             tickLine={false}
             axisLine={false}
-            tick={{ fontSize: 11 }}
-            className="fill-muted-foreground"
+            tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
           />
           <Tooltip
             cursor={{ className: "fill-muted/50" }}

@@ -628,6 +628,64 @@ async function ingestPlenumDocuments(sessionIds: number[]) {
   done(`${n} transcripts`);
 }
 
+/**
+ * Derive each bill's earliest dated step.
+ *
+ * The obvious candidate for "when did this bill happen" — `LastUpdatedDate` —
+ * is a trap. The Knesset rewrites it in bulk: when an MK resigns, every pending
+ * bill they sponsored is restamped with that date and given the postponement
+ * reason "חה\"כ המציע התפטר". One member's four years of work then collapses
+ * into the single month they left. Across the corpus 60% of bills date
+ * differently under the two definitions.
+ *
+ * The honest date is the first sitting that actually had the bill on its
+ * agenda, which the junction tables give us for every bill we hold.
+ */
+async function deriveBillFirstStep() {
+  step("Deriving each bill's earliest dated step");
+
+  // One statement rather than 1,000+ round trips; MIN over both junctions.
+  await prisma.$executeRawUnsafe(`
+    UPDATE "Bill" SET "firstStepDate" = (
+      SELECT MIN(d) FROM (
+        SELECT ps."startDate" AS d
+          FROM "PlenumSessionItem" pi
+          JOIN "PlenumSession" ps ON ps."plenumSessionId" = pi."plenumSessionId"
+         WHERE pi."billId" = "Bill"."billId" AND ps."startDate" IS NOT NULL
+        UNION ALL
+        SELECT cs."startDate" AS d
+          FROM "SessionItem" si
+          JOIN "CommitteeSession" cs ON cs."committeeSessionId" = si."committeeSessionId"
+         WHERE si."billId" = "Bill"."billId" AND cs."startDate" IS NOT NULL
+      )
+    )
+  `);
+
+  // Which junction supplied it, for the UI to be able to say so.
+  await prisma.$executeRawUnsafe(`
+    UPDATE "Bill" SET "firstStepSource" = CASE
+      WHEN "firstStepDate" IS NULL THEN NULL
+      WHEN EXISTS (
+        SELECT 1 FROM "PlenumSessionItem" pi
+          JOIN "PlenumSession" ps ON ps."plenumSessionId" = pi."plenumSessionId"
+         WHERE pi."billId" = "Bill"."billId" AND ps."startDate" = "Bill"."firstStepDate"
+      ) THEN 'plenum'
+      ELSE 'committee' END
+  `);
+
+  // Only for bills with no agenda appearance at all.
+  await prisma.$executeRawUnsafe(`
+    UPDATE "Bill"
+       SET "firstStepDate" = COALESCE("publicationDate", "lastUpdatedDate"),
+           "firstStepSource" = CASE WHEN "publicationDate" IS NOT NULL THEN 'publication' ELSE 'lastUpdated' END
+     WHERE "firstStepDate" IS NULL
+  `);
+
+  const bySource = await prisma.bill.groupBy({ by: ["firstStepSource"], _count: true });
+  for (const r of bySource) console.log(`  ${String(r.firstStepSource).padEnd(12)} ${r._count}`);
+  done("first-step dates set");
+}
+
 async function main() {
   console.log(`Galui ETL → Knesset ${KNESSET} (${BILL_LIMIT} bills, ${SESSION_LIMIT} sessions)`);
   console.log(`Source: https://knesset.gov.il/Odata/ParliamentInfo.svc`);
@@ -687,6 +745,9 @@ async function main() {
     await prisma.plenumSessionItem.findMany({ select: { plenumSessionId: true }, distinct: ["plenumSessionId"] })
   ).map((r) => r.plenumSessionId);
   await ingestPlenumDocuments(sittingsWithItems);
+
+  // Needs every junction row written first.
+  await deriveBillFirstStep();
 
   step("Summary");
   const counts = {

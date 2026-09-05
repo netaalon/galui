@@ -90,7 +90,10 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
             <CardHeader>
               <CardTitle>פעילות חקיקה</CardTitle>
               <CardDescription>
-                הצעות חוק לפי חודש — {member.billsInitiated.length} סה״כ במדגם, מתוכן {leadCount} כיוזם/ת ראשי/ת.
+                {member.billsInitiated.length} הצעות חוק במדגם, מתוכן {leadCount} כיוזם/ת ראשי/ת.
+                החלוקה לחודשים היא לפי המועד המוקדם ביותר שבו ההצעה עלתה על סדר היום
+                של המליאה או של ועדה — ולא לפי מועד העדכון האחרון, שמשתנה בהינף אחד
+                עבור כל הצעות החוק של חבר/ת כנסת שפורש/ת.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -128,7 +131,7 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
                           יוזם/ת ראשי/ת
                         </Badge>
                       ) : null}
-                      <span className="ms-auto tabular-nums">{formatRelative(s.bill.lastUpdatedDate)}</span>
+                      <span className="ms-auto tabular-nums">{formatRelative(s.bill.firstStepDate)}</span>
                     </div>
                   </Link>
                 ))

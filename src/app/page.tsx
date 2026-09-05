@@ -69,7 +69,7 @@ export default async function DashboardPage() {
         {/* --- Recently updated bills ----------------------------------- */}
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle>הצעות חוק שעודכנו לאחרונה</CardTitle>
+            <CardTitle>הצעות חוק שהונחו לאחרונה</CardTitle>
             <Link
               href="/bills"
               className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
                     {bill.initiators[0]?.person ? (
                       <span>יוזם/ת: {fullName(bill.initiators[0].person)}</span>
                     ) : null}
-                    <span className="ms-auto tabular-nums">{formatRelative(bill.lastUpdatedDate)}</span>
+                    <span className="ms-auto tabular-nums">{formatRelative(bill.firstStepDate)}</span>
                   </div>
                 </Link>
               ))

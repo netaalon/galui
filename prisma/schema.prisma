@@ -144,6 +144,18 @@ model Bill {
   statusId     Int?
   postponementReasonDesc String?
   publicationDate DateTime?
+  /// Earliest dated step we know of: the first plenum sitting or committee
+  /// session that had this bill on its agenda. This is when the bill actually
+  /// entered the process.
+  ///
+  /// `lastUpdatedDate` is NOT a usable stand-in. A bulk status change rewrites
+  /// it for hundreds of bills at once — when an MK resigns, every pending bill
+  /// they sponsored is stamped with that day — which piles a whole term's work
+  /// into a single month. 60% of the corpus dates differently under the two.
+  firstStepDate   DateTime?
+  /// "plenum" | "committee" | "publication" | "lastUpdated" — which source the
+  /// date came from, so a chart can say what it is actually plotting.
+  firstStepSource String?
   summaryLaw   String?
   publicationSeriesDesc String?
   isContinuationBill Boolean?
@@ -158,6 +170,7 @@ model Bill {
 
   @@index([knessetNum, lastUpdatedDate])
   @@index([publicationDate])
+  @@index([firstStepDate])
   @@index([committeeId])
 }
 

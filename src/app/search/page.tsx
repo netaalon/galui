@@ -69,7 +69,7 @@ export default async function SearchPage({
                     <p className="text-sm font-medium leading-snug">{truncate(b.name, 120)}</p>
                     <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                       <StatusBadge label={b.status?.desc} />
-                      <span className="ms-auto tabular-nums">{formatRelative(b.lastUpdatedDate)}</span>
+                      <span className="ms-auto tabular-nums">{formatRelative(b.firstStepDate)}</span>
                     </div>
                   </Link>
                 ))}

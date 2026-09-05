@@ -26,15 +26,22 @@ async function check(path, fn) {
   console.log("  " + result);
   console.log("  console errors: " + (errors.length ? errors.join(" | ") : "none"));
   if (errors.length) failures.push(`${path}: ${errors.join(" | ")}`);
-  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false/.test(result)) failures.push(`${path}: ${result}`);
+  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1/.test(result)) failures.push(`${path}: ${result}`);
 }
 
 await check("/members/30839", async () => {
   await page.waitForSelector(".recharts-bar-rectangle", { timeout: 15000 }).catch(() => {});
   const bars = await page.locator(".recharts-bar-rectangle").count();
-  const ticks = await page.locator(".recharts-xAxis .recharts-cartesian-axis-tick").count();
+  // Recharts 3 drops the .recharts-xAxis wrapper, and SVG <text> has no
+  // innerText — read textContent off the tick-value class directly.
+  const tickText = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => n.textContent ?? ""));
+  // Month labels look like "יוני 23"; the y-axis ticks are bare numbers.
+  const ticks = tickText.filter((t) => /\D\s\d{2}$/.test(t.trim())).length;
   const box = await page.locator(".recharts-surface").first().boundingBox();
-  return `chart bars=${bars} xTicks=${ticks} surface=${box ? `${Math.round(box.width)}x${Math.round(box.height)}` : "none"}`;
+  const spread = new Set(await page.locator(".recharts-bar-rectangle path").evaluateAll(ns => ns.map(n => Math.round(n.getBoundingClientRect().height)))).size;
+  return `chart bars=${bars} xTicks=${ticks} barHeights=${spread} surface=${box ? `${Math.round(box.width)}x${Math.round(box.height)}` : "none"}`;
 });
 
 await check("/", async () => {

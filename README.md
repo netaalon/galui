@@ -123,6 +123,14 @@ Things worth knowing, all verified against the live service:
   The mapping therefore lives in `src/lib/factions.ts`, is **hand-maintained**,
   and is re-applied to `Person.bloc` on every ingest. Government roles, by
   contrast, come straight from `KNS_PersonToPosition`.
+- **`LastUpdatedDate` is not a date the bill happened.** The Knesset rewrites it
+  in bulk: when an MK resigns, every pending bill they sponsored is restamped
+  with that day and given the reason "חה\"כ המציע התפטר". One member's
+  resignation put 99 bills into a single month, and 60% of the corpus dates
+  differently under the two definitions. Bills therefore carry a derived
+  `firstStepDate` — the earliest sitting that had them on its agenda — and every
+  list, chart and ordering uses that. 100% of bills have one (1,153 from a
+  plenum sitting, 2 from a committee).
 - **Knesset 25 spans two governments.** The 36th was still in office when the
   term opened, so its ministers appear in the position data. Only roles whose
   `GovernmentNum` matches the sitting government (37) are shown as current.

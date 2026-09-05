@@ -40,7 +40,7 @@ export default async function BillsPage({
                 <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                   <h2 className="min-w-0 flex-1 font-medium leading-snug">{bill.name}</h2>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatRelative(bill.lastUpdatedDate)}
+                    {formatRelative(bill.firstStepDate)}
                   </span>
                 </div>
 
@@ -54,8 +54,8 @@ export default async function BillsPage({
                   {bill._count.sessionItems > 0 ? (
                     <span>· {countLabel(bill._count.sessionItems, "דיון אחד בוועדה", "דיונים בוועדה")}</span>
                   ) : null}
-                  {bill.publicationDate ? (
-                    <span className="ms-auto tabular-nums">פורסם {formatShortDate(bill.publicationDate)}</span>
+                  {bill.firstStepDate ? (
+                    <span className="ms-auto tabular-nums">הונחה {formatShortDate(bill.firstStepDate)}</span>
                   ) : null}
                 </div>
               </Link>

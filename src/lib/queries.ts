@@ -3,10 +3,16 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { MemberSort } from "@/lib/member-sort";
 
-/** Bills whose upstream record changed most recently. */
+/**
+ * The bills that most recently entered the legislative process.
+ *
+ * Deliberately not ordered by `lastUpdatedDate`: a single administrative event
+ * restamps hundreds of rows, so that ordering fills the dashboard with one
+ * member's back catalogue the day they resign (9 of the top 10, when checked).
+ */
 export async function getRecentBills(take = 5) {
   return prisma.bill.findMany({
-    orderBy: { lastUpdatedDate: "desc" },
+    orderBy: { firstStepDate: "desc" },
     take,
     include: {
       status: true,
@@ -114,7 +120,8 @@ export async function listBills(opts: { q?: string; take?: number; skip?: number
   const [rows, total] = await Promise.all([
     prisma.bill.findMany({
       where,
-      orderBy: { lastUpdatedDate: "desc" },
+      // Newest into the process first — see getRecentBills on why not lastUpdatedDate.
+      orderBy: { firstStepDate: "desc" },
       take,
       skip,
       include: {
@@ -213,7 +220,7 @@ export async function getMember(personId: number) {
     include: {
       positions: { orderBy: [{ isCurrent: "desc" }, { startDate: "desc" }] },
       billsInitiated: {
-        orderBy: [{ bill: { lastUpdatedDate: "desc" } }],
+        orderBy: [{ bill: { firstStepDate: "desc" } }],
         include: { bill: { include: { status: true, committee: true } } },
       },
     },
@@ -223,19 +230,20 @@ export async function getMember(personId: number) {
 /**
  * Bills sponsored per month, for the member activity chart.
  *
- * A bill's date is its publication date where the Knesset has published one,
- * falling back to the last-updated stamp so bills still in progress (which is
- * most private members' bills) still register on the chart.
+ * Buckets on `firstStepDate` — the first sitting that had the bill on its
+ * agenda. Do not be tempted back to `lastUpdatedDate`: the Knesset rewrites it
+ * in bulk, so a member who resigns has every pending bill restamped with their
+ * last day and the chart shows a term's work as one enormous final month.
  */
 export async function getMemberActivityByMonth(personId: number) {
   const sponsorships = await prisma.billInitiator.findMany({
     where: { personId },
-    include: { bill: { select: { publicationDate: true, lastUpdatedDate: true, subTypeDesc: true } } },
+    include: { bill: { select: { firstStepDate: true, subTypeDesc: true } } },
   });
 
   const buckets = new Map<string, { month: string; total: number; lead: number }>();
   for (const s of sponsorships) {
-    const when = s.bill.publicationDate ?? s.bill.lastUpdatedDate;
+    const when = s.bill.firstStepDate;
     if (!when) continue;
     const key = `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, "0")}`;
     const bucket = buckets.get(key) ?? { month: key, total: 0, lead: 0 };
@@ -244,7 +252,18 @@ export async function getMemberActivityByMonth(personId: number) {
     buckets.set(key, bucket);
   }
 
-  return [...buckets.values()].sort((a, b) => a.month.localeCompare(b.month));
+  // Months with no activity must still appear, otherwise a two-year gap renders
+  // as two adjacent bars and the timeline reads as continuous work.
+  const keys = [...buckets.keys()].sort();
+  if (keys.length === 0) return [];
+  const [startY, startM] = keys[0].split("-").map(Number);
+  const [endY, endM] = keys[keys.length - 1].split("-").map(Number);
+  const filled: Array<{ month: string; total: number; lead: number }> = [];
+  for (let y = startY, m = startM; y < endY || (y === endY && m <= endM); m === 12 ? ((y += 1), (m = 1)) : (m += 1)) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    filled.push(buckets.get(key) ?? { month: key, total: 0, lead: 0 });
+  }
+  return filled;
 }
 
 /** Committee sessions this member sits on, via their committee positions. */
@@ -263,7 +282,7 @@ export async function search(q: string, take = 8) {
   const [bills, members, sessions, plenum] = await Promise.all([
     prisma.bill.findMany({
       where: { name: { contains: q } },
-      orderBy: { lastUpdatedDate: "desc" },
+      orderBy: { firstStepDate: "desc" },
       take,
       include: { status: true },
     }),
