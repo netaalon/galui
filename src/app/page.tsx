@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, Gavel, Landmark, Speech, Users } from "lucide-react";
+import { ArrowLeft, FileText, Landmark, MessageCircleQuestion, Speech, Users } from "lucide-react";
 import Link from "next/link";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
@@ -21,7 +21,7 @@ const STATS = [
   { key: "bills", label: "הצעות חוק", icon: FileText, href: "/bills" },
   { key: "members", label: "חברי כנסת", icon: Users, href: "/members" },
   { key: "plenumSittings", label: "ישיבות מליאה", icon: Speech, href: "/plenum" },
-  { key: "sessions", label: "ישיבות ועדה", icon: Gavel, href: null },
+  { key: "questions", label: "שאילתות", icon: MessageCircleQuestion, href: "/questions" },
 ] as const;
 
 export default async function DashboardPage() {

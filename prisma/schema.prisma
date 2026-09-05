@@ -66,6 +66,7 @@ model Person {
   positions  PersonPosition[]
   billsInitiated BillInitiator[]
   participations CommitteeParticipant[]
+  questions  Question[]
 
   @@index([isMk, knessetNum])
   @@index([bloc])
@@ -141,6 +142,7 @@ model Status {
   bills        Bill[]
   sessionItems SessionItem[]
   plenumItems  PlenumSessionItem[]
+  questions    Question[]
 }
 
 /// KNS_Bill
@@ -423,4 +425,77 @@ model BillDocument {
 
   @@unique([documentBillId, applicationId])
   @@index([billId, groupTypeId])
+}
+
+/// KNS_GovMinistry
+///
+/// Contains duplicates and placeholders ("אין נתונים", the same ministry name
+/// under several ids as governments reorganise), so display names are not
+/// unique — group on the id, label with the name.
+model GovMinistry {
+  govMinistryId   Int     @id
+  name            String?
+  isActive        Boolean @default(false)
+  lastUpdatedDate DateTime?
+
+  questions Question[]
+
+  @@index([name])
+}
+
+/// KNS_Query — a written parliamentary question (שאילתה) from an MK to a minister.
+///
+/// The accountability value is in the two reply dates: `replyDatePlanned` is
+/// when an answer was due, `replyMinisterDate` when it actually came. Both are
+/// given by the service, so lateness is arithmetic rather than inference.
+model Question {
+  questionId      Int     @id
+  number          Int?
+  knessetNum      Int?
+  name            String?
+  typeId          Int?
+  /// "רגילה" (ordinary) or "דחופה" (urgent) — urgent ones carry a shorter deadline.
+  typeDesc        String?
+  statusId        Int?
+  personId        Int?
+  govMinistryId   Int?
+  submitDate      DateTime?
+  replyDatePlanned DateTime?
+  replyMinisterDate DateTime?
+
+  /// Days between the due date and the actual reply; positive means late.
+  /// Null while a question is unanswered — lateness for those moves with the
+  /// clock, so it is computed per request instead of frozen here.
+  replyDaysLate   Int?
+
+  lastUpdatedDate DateTime?
+
+  person   Person?      @relation(fields: [personId], references: [personId], onDelete: SetNull)
+  ministry GovMinistry? @relation(fields: [govMinistryId], references: [govMinistryId], onDelete: SetNull)
+  status   Status?      @relation(fields: [statusId], references: [statusId], onDelete: SetNull)
+  documents QuestionDocument[]
+
+  @@index([personId])
+  @@index([govMinistryId])
+  @@index([submitDate])
+  @@index([replyDaysLate])
+}
+
+/// KNS_DocumentQuery — the question text and the minister's reply.
+///
+/// Unlike the other document tables, this one issues a distinct id per format
+/// (the DOC and PDF of one question are separate ids), so the id alone is a
+/// safe key here.
+model QuestionDocument {
+  documentQueryId String @id
+  questionId      Int
+  groupTypeId     Int?
+  groupTypeDesc   String?
+  applicationDesc String?
+  filePath        String?
+  lastUpdatedDate DateTime?
+
+  question Question @relation(fields: [questionId], references: [questionId], onDelete: Cascade)
+
+  @@index([questionId])
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Landmark, LayoutDashboard, Speech, Users } from "lucide-react";
+import { FileText, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
@@ -12,6 +12,7 @@ const links = [
   { href: "/", label: "ראשי", icon: LayoutDashboard },
   { href: "/bills", label: "הצעות חוק", icon: FileText },
   { href: "/plenum", label: "מליאה", icon: Speech },
+  { href: "/questions", label: "שאילתות", icon: MessageCircleQuestion },
   { href: "/members", label: "חברי כנסת", icon: Users },
 ] as const;
 

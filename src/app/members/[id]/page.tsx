@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 import { BlocBadge, GovernmentBadge } from "@/components/bloc-badge";
 import { MemberActivityChart } from "@/components/member-activity-chart";
 import { MemberAvatar, PhotoCredit } from "@/components/member-avatar";
+import { QuestionRow } from "@/components/question-row";
 import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
-import { getMember, getMemberActivityByMonth, getMemberCommittees } from "@/lib/queries";
+import { getMember, getMemberActivityByMonth, getMemberCommittees, getMemberQuestions } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +28,10 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   const member = await getMember(personId);
   if (!member) notFound();
 
-  const [activity, committees] = await Promise.all([
+  const [activity, committees, questions] = await Promise.all([
     getMemberActivityByMonth(personId),
     getMemberCommittees(personId),
+    getMemberQuestions(personId, 8),
   ]);
 
   const leadCount = member.billsInitiated.filter((b) => b.isInitiator).length;
@@ -116,6 +118,30 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
               )}
             </CardContent>
           </Card>
+
+          {questions.total > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>שאילתות</CardTitle>
+                <CardDescription>
+                  {questions.total} שאילתות לשרי הממשלה · {questions.answered} נענו
+                  {questions.late > 0
+                    ? ` · ${questions.late} באיחור, בממוצע ${questions.avgDaysLate} ימים מעבר למועד`
+                    : null}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {questions.rows.map((q) => (
+                  <QuestionRow key={q.questionId} question={q} showAsker={false} />
+                ))}
+                {questions.total > questions.rows.length ? (
+                  <p className="pt-2 text-xs text-muted-foreground">
+                    מוצגות {questions.rows.length} מתוך {questions.total}.
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

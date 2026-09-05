@@ -67,6 +67,9 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_PlenumSession` | `PlenumSession` | All ~418 sittings of the term |
 | `KNS_PlmSessionItem` | `PlenumSessionItem` | Junction: bill ↔ sitting, **with the reading stage** |
 | `KNS_DocumentPlenumSession` | `PlenumDocument` | Transcripts ("דברי הכנסת", stenograms) |
+| `KNS_Query` | `Question` | Written questions to ministers, with both reply dates |
+| `KNS_DocumentQuery` | `QuestionDocument` | The question text and the minister's reply |
+| `KNS_GovMinistry` | `GovMinistry` | |
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
 
 Things worth knowing, all verified against the live service:
@@ -116,6 +119,16 @@ Things worth knowing, all verified against the live service:
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format, so rows are stored under a synthetic
   `"<documentId>:<applicationId>"` id.
+- **Written questions carry their own accountability data.** `KNS_Query` gives
+  both when a reply was due (`ReplyDatePlanned`) and when it arrived
+  (`ReplyMinisterDate`), so lateness is arithmetic rather than inference. Of the
+  1,580 questions in Knesset 25, **83% of those answered were late**, by a mean
+  of 111 days and a maximum of 1,218; 479 are still unanswered. Answered
+  questions store `replyDaysLate`; for unanswered ones lateness moves with the
+  clock, so it is computed per request instead.
+- **The votes service does not cover this Knesset.** `Odata/Votes.svc` exists
+  and is well shaped, but its most recent vote is 2021-07-13 and it holds zero
+  rows for Knesset 25. Nothing in this project can use it until that changes.
 - **`MKSiteCode` and `SiteId` are different ids**, both small integers over
   overlapping ranges — `KNS_MkSiteCode` carries both. `SiteId` is the one
   knesset.gov.il member pages, the Knesset photo archive and Wikidata's P9770
@@ -166,7 +179,9 @@ Things worth knowing, all verified against the live service:
   bloc, bills sponsored or seniority, with a serving-only filter. Detail pages
   add a Recharts bar chart of bills sponsored per month (split lead vs.
   co-signed), committees, and recent bills.
-- `/search` — across bills, members and sessions in the local mirror.
+- `/questions` — written questions (שאילתות) to ministers, sortable by lateness,
+  filterable by answered / pending / late, with a per-ministry breakdown.
+- `/search` — across bills, members, sittings and sessions in the local mirror.
 
 ## Member photos
 

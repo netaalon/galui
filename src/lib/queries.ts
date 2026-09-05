@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { MemberSort } from "@/lib/member-sort";
+import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
 
 /**
  * The bills that most recently entered the legislative process.
@@ -62,7 +63,8 @@ export async function getDashboardStats() {
       prisma.plenumSession.count(),
       prisma.plenumSessionItem.count({ where: { billId: { not: null } } }),
     ]);
-  return { bills, members, sessions, committees, discussions, protocols, plenumSittings, readings };
+  const questions = await prisma.question.count();
+  return { bills, members, sessions, committees, discussions, protocols, plenumSittings, readings, questions };
 }
 
 /** Plenum sittings that have already been held, newest first. */
@@ -169,6 +171,29 @@ export async function getBill(billId: number) {
   });
 }
 
+/**
+ * Build a name filter that tolerates multi-word queries.
+ *
+ * `contains` tests the whole string against one column, so searching a full
+ * name ("עופר כסיף") matched nothing while either half matched fine — first and
+ * last names live in separate columns. Requiring every word to appear in *some*
+ * name field fixes that without loosening the match.
+ */
+function nameSearchFilter(q: string): Prisma.PersonWhereInput | undefined {
+  const words = q.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  return {
+    AND: words.map((w) => ({
+      OR: [
+        { firstName: { contains: w } },
+        { lastName: { contains: w } },
+        { factionName: { contains: w } },
+        { governmentRole: { contains: w } },
+      ],
+    })),
+  };
+}
+
 const MEMBER_ORDER_BY: Record<MemberSort, Prisma.PersonOrderByWithRelationInput[]> = {
   name: [{ lastName: "asc" }, { firstName: "asc" }],
   faction: [{ factionName: "asc" }, { lastName: "asc" }],
@@ -186,16 +211,7 @@ export async function listMembers(
     where: {
       isMk: true,
       ...(onlyServing ? { mkEndDate: null } : {}),
-      ...(q
-        ? {
-            OR: [
-              { firstName: { contains: q } },
-              { lastName: { contains: q } },
-              { factionName: { contains: q } },
-              { governmentRole: { contains: q } },
-            ],
-          }
-        : {}),
+      ...(q ? (nameSearchFilter(q) ?? {}) : {}),
     },
     orderBy: MEMBER_ORDER_BY[sort],
     include: { _count: { select: { billsInitiated: true } } },
@@ -287,10 +303,7 @@ export async function search(q: string, take = 8) {
       include: { status: true },
     }),
     prisma.person.findMany({
-      where: {
-        isMk: true,
-        OR: [{ firstName: { contains: q } }, { lastName: { contains: q } }, { factionName: { contains: q } }],
-      },
+      where: { isMk: true, ...(nameSearchFilter(q) ?? {}) },
       orderBy: { lastName: "asc" },
       take,
     }),
@@ -307,4 +320,128 @@ export async function search(q: string, take = 8) {
     }),
   ]);
   return { bills, members, sessions, plenum };
+}
+
+// ---------------------------------------------------------------------------
+// Written questions (שאילתות)
+// ---------------------------------------------------------------------------
+
+const QUESTION_ORDER_BY: Record<QuestionSort, Prisma.QuestionOrderByWithRelationInput[]> = {
+  recent: [{ submitDate: "desc" }],
+  "latest-reply": [{ replyMinisterDate: "desc" }],
+  // Nulls (unanswered) sort last; their live lateness is computed for display.
+  overdue: [{ replyDaysLate: "desc" }, { submitDate: "desc" }],
+  ministry: [{ ministry: { name: "asc" } }, { submitDate: "desc" }],
+  asker: [{ person: { lastName: "asc" } }, { submitDate: "desc" }],
+};
+
+function questionWhere(opts: { q?: string; filter?: QuestionFilter; ministryId?: number }) {
+  const { q, filter = "all", ministryId } = opts;
+  return {
+    ...(ministryId ? { govMinistryId: ministryId } : {}),
+    ...(filter === "answered" ? { replyMinisterDate: { not: null } } : {}),
+    ...(filter === "pending" ? { replyMinisterDate: null } : {}),
+    ...(filter === "late" ? { replyDaysLate: { gt: 0 } } : {}),
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q } },
+            { person: nameSearchFilter(q) },
+            { ministry: { name: { contains: q } } },
+          ],
+        }
+      : {}),
+  } satisfies Prisma.QuestionWhereInput;
+}
+
+export async function listQuestions(
+  opts: { q?: string; sort?: QuestionSort; filter?: QuestionFilter; ministryId?: number; take?: number } = {},
+) {
+  const { sort = "recent", take = 60 } = opts;
+  const where = questionWhere(opts);
+  const [rows, total] = await Promise.all([
+    prisma.question.findMany({
+      where,
+      orderBy: QUESTION_ORDER_BY[sort],
+      take,
+      include: { person: true, ministry: true, status: true, documents: { orderBy: { groupTypeId: "asc" } } },
+    }),
+    prisma.question.count({ where }),
+  ]);
+  return { rows, total };
+}
+
+export async function getQuestionStats(now = new Date()) {
+  const [total, answered, pending, late, agg, refused, pendingOverdue] = await Promise.all([
+    prisma.question.count(),
+    prisma.question.count({ where: { replyMinisterDate: { not: null } } }),
+    prisma.question.count({ where: { replyMinisterDate: null } }),
+    prisma.question.count({ where: { replyDaysLate: { gt: 0 } } }),
+    prisma.question.aggregate({ _avg: { replyDaysLate: true }, _max: { replyDaysLate: true }, where: { replyDaysLate: { not: null } } }),
+    prisma.question.count({ where: { status: { desc: { contains: "סירב" } } } }),
+    prisma.question.count({ where: { replyMinisterDate: null, replyDatePlanned: { lt: now } } }),
+  ]);
+  const withLateness = await prisma.question.count({ where: { replyDaysLate: { not: null } } });
+  return {
+    total, answered, pending, late, refused, pendingOverdue, withLateness,
+    avgDaysLate: Math.round(agg._avg.replyDaysLate ?? 0),
+    maxDaysLate: agg._max.replyDaysLate ?? 0,
+    latePct: withLateness ? Math.round((late / withLateness) * 100) : 0,
+  };
+}
+
+/** Ministries ranked by how many questions they were asked. */
+export async function getMinistryQuestionStats(take = 12) {
+  const grouped = await prisma.question.groupBy({
+    by: ["govMinistryId"],
+    where: { govMinistryId: { not: null } },
+    _count: true,
+    _avg: { replyDaysLate: true },
+    orderBy: { _count: { govMinistryId: "desc" } },
+    take,
+  });
+  const ministries = await prisma.govMinistry.findMany({
+    where: { govMinistryId: { in: grouped.map((g) => g.govMinistryId!) } },
+  });
+  const byId = new Map(ministries.map((m) => [m.govMinistryId, m]));
+  return Promise.all(
+    grouped.map(async (g) => ({
+      ministryId: g.govMinistryId!,
+      name: byId.get(g.govMinistryId!)?.name ?? "—",
+      asked: g._count,
+      avgDaysLate: Math.round(g._avg.replyDaysLate ?? 0),
+      pending: await prisma.question.count({ where: { govMinistryId: g.govMinistryId, replyMinisterDate: null } }),
+    })),
+  );
+}
+
+/** A member's written questions, plus how well they were answered. */
+export async function getMemberQuestions(personId: number, take = 10) {
+  const [rows, total, answered, late, agg] = await Promise.all([
+    prisma.question.findMany({
+      where: { personId },
+      orderBy: { submitDate: "desc" },
+      take,
+      include: { ministry: true, status: true, documents: { orderBy: { groupTypeId: "asc" } } },
+    }),
+    prisma.question.count({ where: { personId } }),
+    prisma.question.count({ where: { personId, replyMinisterDate: { not: null } } }),
+    prisma.question.count({ where: { personId, replyDaysLate: { gt: 0 } } }),
+    prisma.question.aggregate({ _avg: { replyDaysLate: true }, where: { personId, replyDaysLate: { not: null } } }),
+  ]);
+  return { rows, total, answered, late, avgDaysLate: Math.round(agg._avg.replyDaysLate ?? 0) };
+}
+
+/** MKs who ask the most questions. */
+export async function getTopQuestioners(take = 5) {
+  const grouped = await prisma.question.groupBy({
+    by: ["personId"],
+    where: { personId: { not: null } },
+    _count: true,
+    orderBy: { _count: { personId: "desc" } },
+    take,
+  });
+  const people = await prisma.person.findMany({ where: { personId: { in: grouped.map((g) => g.personId!) } } });
+  const byId = new Map(people.map((p) => [p.personId, p]));
+  return grouped.map((g) => ({ person: byId.get(g.personId!)!, asked: g._count })).filter((r) => r.person);
 }

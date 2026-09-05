@@ -26,7 +26,7 @@ async function check(path, fn) {
   console.log("  " + result);
   console.log("  console errors: " + (errors.length ? errors.join(" | ") : "none"));
   if (errors.length) failures.push(`${path}: ${errors.join(" | ")}`);
-  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1|photosLoaded=0|photoLoaded=false|creditShown=0|fileLink=0|officialIdOk=false/.test(result)) failures.push(`${path}: ${result}`);
+  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1|photosLoaded=0|photoLoaded=false|creditShown=0|fileLink=0|officialIdOk=false|questions rows=0|statCards=0|overdueSortDescending=false|fullNameSearch=0|memberQuestionsCard=0|questionRows=0/.test(result)) failures.push(`${path}: ${result}`);
 }
 
 await check("/members/30839", async () => {
@@ -105,6 +105,30 @@ await check("/", async () => {
   const heading = await page.locator("h1").first().innerText();
   const cards = await page.locator("h1 ~ div > div").count();
   return `search navigated to ${new URL(page.url()).pathname} h1="${heading}" sections=${cards}`;
+});
+
+// Written questions: the accountability figures and the sort must both work.
+await check("/questions", async () => {
+  const rows = await page.locator("text=/הוגשה /").count();
+  const stats = await page.locator("text=/נענו באיחור/").count();
+  await page.selectOption("select >> nth=0", "overdue");
+  await page.waitForURL(/sort=overdue/, { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
+  const late = await page.locator("text=/באיחור .* ימים/").allInnerTexts();
+  const nums = late.slice(0, 3).map((t) => Number(t.replace(/\D/g, "")));
+  const descending = nums.every((n, i) => i === 0 || nums[i - 1] >= n);
+  return `questions rows=${rows} statCards=${stats} overdueSortDescending=${descending} worst=${nums[0] ?? 0}`;
+});
+
+// A full name spans two columns, so it must not be matched as one string.
+await check("/members?q=%D7%A2%D7%95%D7%A4%D7%A8%20%D7%9B%D7%A1%D7%99%D7%A3", async () => {
+  return `fullNameSearch=${await page.locator('a[href^="/members/"]').count()}`;
+});
+
+await check("/members/30719", async () => {
+  const card = await page.locator("text=/שאילתות לשרי הממשלה/").count();
+  const rows = await page.locator("text=/הוגשה /").count();
+  return `memberQuestionsCard=${card} questionRows=${rows}`;
 });
 
 await check("/members", async () => {

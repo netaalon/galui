@@ -31,6 +31,9 @@ interface RawCommitteeSession { CommitteeSessionID: number; Number: number | nul
 interface RawCmtSessionItem { CmtSessionItemID: number; ItemID: number | null; ItemTypeID: number | null; CommitteeSessionID: number; Ordinal: number | null; StatusID: number | null; Name: string | null; LastUpdatedDate: string | null }
 interface RawSessionDocument { DocumentCommitteeSessionID: string | number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawItemType { ItemTypeID: number; Desc: string | null }
+interface RawGovMinistry { GovMinistryID: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
+interface RawQuery { QueryID: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
+interface RawQueryDocument { DocumentQueryID: string | number; QueryID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawBillDocument { DocumentBillID: string | number; BillID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawPlenumSession { PlenumSessionID: number; Number: number | null; KnessetNum: number | null; Name: string | null; StartDate: string | null; FinishDate: string | null; IsSpecialMeeting: boolean | null; LastUpdatedDate: string | null }
 interface RawPlmSessionItem { plmPlenumSessionID: number; ItemID: number | null; PlenumSessionID: number; ItemTypeID: number | null; ItemTypeDesc: string | null; Ordinal: number | string | null; Name: string | null; StatusID: number | null; IsDiscussion: number | null; LastUpdatedDate: string | null }
@@ -688,6 +691,93 @@ async function deriveBillFirstStep() {
   done("first-step dates set");
 }
 
+
+// ---------------------------------------------------------------------------
+// Written questions (שאילתות)
+// ---------------------------------------------------------------------------
+
+async function ingestGovMinistries() {
+  step("KNS_GovMinistry");
+  const rows = await fetchAll<RawGovMinistry>("KNS_GovMinistry");
+  const n = await writeBatched(rows, (r) => {
+    const data = {
+      govMinistryId: r.GovMinistryID, name: r.Name?.trim() ?? null,
+      isActive: parseBool(r.IsActive), lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.govMinistry.upsert({ where: { govMinistryId: r.GovMinistryID }, create: data, update: data });
+  });
+  await record("KNS_GovMinistry", rows.length, n, true);
+  done(`${n} ministries`);
+}
+
+/**
+ * KNS_Query — written questions from MKs to ministers.
+ *
+ * `replyDaysLate` is derived here from the two dates the service already gives:
+ * when a reply was due and when it arrived. Only answered questions get a
+ * value; for the rest lateness depends on today's date, so it belongs in the
+ * query layer rather than frozen in a column.
+ */
+async function ingestQuestions(): Promise<number[]> {
+  step(`KNS_Query — written questions, Knesset ${KNESSET}`);
+  const rows = await fetchAll<RawQuery>("KNS_Query", { filter: `KnessetNum eq ${KNESSET}` });
+
+  const knownPeople = new Set((await prisma.person.findMany({ select: { personId: true } })).map((p) => p.personId));
+  const knownMinistries = new Set((await prisma.govMinistry.findMany({ select: { govMinistryId: true } })).map((m) => m.govMinistryId));
+  const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
+
+  let unknownPerson = 0;
+  const n = await writeBatched(rows, (r) => {
+    const planned = parseDate(r.ReplyDatePlanned);
+    const replied = parseDate(r.ReplyMinisterDate);
+    const daysLate =
+      planned && replied ? Math.round((replied.getTime() - planned.getTime()) / 86_400_000) : null;
+    if (r.PersonID != null && !knownPeople.has(r.PersonID)) unknownPerson++;
+
+    const data = {
+      questionId: r.QueryID, number: r.Number, knessetNum: r.KnessetNum, name: r.Name,
+      typeId: r.TypeID, typeDesc: r.TypeDesc,
+      statusId: r.StatusID != null && knownStatuses.has(r.StatusID) ? r.StatusID : null,
+      personId: r.PersonID != null && knownPeople.has(r.PersonID) ? r.PersonID : null,
+      govMinistryId: r.GovMinistryID != null && knownMinistries.has(r.GovMinistryID) ? r.GovMinistryID : null,
+      submitDate: parseDate(r.SubmitDate),
+      replyDatePlanned: planned,
+      replyMinisterDate: replied,
+      replyDaysLate: daysLate,
+      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.question.upsert({ where: { questionId: r.QueryID }, create: data, update: data });
+  });
+  await record("KNS_Query", rows.length, n, true);
+  done(`${n} questions${unknownPerson ? ` (${unknownPerson} from a person we do not hold)` : ""}`);
+  return rows.map((r) => r.QueryID);
+}
+
+async function ingestQuestionDocuments(questionIds: number[]) {
+  step("KNS_DocumentQuery — question texts and ministers' replies");
+  const rows: RawQueryDocument[] = [];
+  for (const ids of chunk(questionIds, 20)) {
+    rows.push(...(await fetchAll<RawQueryDocument>("KNS_DocumentQuery", { filter: orIn("QueryID", ids) })));
+  }
+  const known = new Set(questionIds);
+  const usable = rows.filter((r) => known.has(r.QueryID));
+
+  const n = await writeBatched(usable, (r) => {
+    // This table issues a distinct id per format, so the id alone is safe here
+    // — unlike the bill and session document tables.
+    const id = String(r.DocumentQueryID);
+    const data = {
+      documentQueryId: id, questionId: r.QueryID,
+      groupTypeId: r.GroupTypeID, groupTypeDesc: r.GroupTypeDesc,
+      applicationDesc: r.ApplicationDesc, filePath: r.FilePath,
+      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.questionDocument.upsert({ where: { documentQueryId: id }, create: data, update: data });
+  });
+  await record("KNS_DocumentQuery", rows.length, n, true);
+  done(`${n} documents`);
+}
+
 async function main() {
   console.log(`Galui ETL → Knesset ${KNESSET} (${BILL_LIMIT} bills, ${SESSION_LIMIT} sessions)`);
   console.log(`Source: https://knesset.gov.il/Odata/ParliamentInfo.svc`);
@@ -751,6 +841,10 @@ async function main() {
   // Needs every junction row written first.
   await deriveBillFirstStep();
 
+  await ingestGovMinistries();
+  const questionIds = await ingestQuestions();
+  await ingestQuestionDocuments(questionIds);
+
   step("Summary");
   const counts = {
     people: await prisma.person.count(),
@@ -767,6 +861,9 @@ async function main() {
     plenumItems: await prisma.plenumSessionItem.count(),
     billReadings: await prisma.plenumSessionItem.count({ where: { billId: { not: null } } }),
     transcripts: await prisma.plenumDocument.count(),
+    ministries: await prisma.govMinistry.count(),
+    questions: await prisma.question.count(),
+    questionDocs: await prisma.questionDocument.count(),
   };
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log(`\nDone in ${stamp()}.`);
