@@ -127,9 +127,8 @@ Things worth knowing, all verified against the live service:
 - **Committee membership does not exist in the service.** The position types
   "יו״ר ועדה" (41) and "חבר ועדה" (42), along with 66/67/663, are defined in
   `KNS_Position` but have **zero rows** in `KNS_PersonToPosition` across every
-  Knesset, and not one row there carries a `CommitteeID`. Committees are
-  therefore described by what they did — sittings held, bills handled — and a
-  member's committees are those that discussed their bills, which is derivable.
+  Knesset, and not one row there carries a `CommitteeID`. It is recovered from
+  the protocols instead — see below.
 - **`KNS_JointCommittee.JointCommitteeID` is not unique** despite being the
   declared key (the value "1" recurs); the real key is the committee pair.
 - **Written questions carry their own accountability data.** `KNS_Query` gives
@@ -199,6 +198,40 @@ Things worth knowing, all verified against the live service:
 - `/questions` — written questions (שאילתות) to ministers, sortable by lateness,
   filterable by answered / pending / late, with a per-ministry breakdown.
 - `/search` — across bills, members, sittings and sessions in the local mirror.
+
+## Committee attendance
+
+Committee rosters are absent from the API, but every protocol opens with a
+structured `נכחו:` header listing who was in the room, under labelled sections,
+with the chair marked. `scripts/protocols/` parses that deterministically — no
+LLM:
+
+```bash
+python3 scripts/protocols/extract_attendance.py   # ~20 min, writes data/attendance.jsonl
+npx tsx scripts/load-attendance.ts                # matches names, stores rows
+python3 scripts/protocols/verify.py               # re-run the accuracy check
+```
+
+Over 9,043 protocols: **52,455 member and MK names extracted, 98.8% resolved to
+a Person**, giving 52,061 stored rows across 9,104 of 10,895 sittings, and 9,041
+chair rows.
+
+Only committee members and visiting MKs are stored, and only when the name
+resolves to exactly one Person. Both groups are by definition in the registry,
+so requiring a match is what structurally keeps job titles out of the roster —
+protocol sections are not perfectly regular. Invitees and legal advisors are
+parsed but not stored: they are mostly outside the registry, so nothing would
+validate them.
+
+**This is attendance, not an official roster.** Someone who never attends will
+not appear, and the long tail of occasional visitors is real — ועדת הכספים has
+67 people who attended at least once, so the roster is capped at the 20 most
+frequent and the page says so.
+
+The documents are never kept: at ~148 KB each the full set is 1.4 GB and only
+the header is wanted. A gzipped cache of the header text is retained so a
+parser change can be replayed with `--from-cache` instead of re-downloading —
+a lesson learned after paying for two full passes.
 
 ## Member photos
 

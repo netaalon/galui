@@ -575,3 +575,90 @@ export async function getCommitteesForMember(personId: number, take = 8) {
   }
   return [...counts.values()].sort((a, b) => b.discussions - a.discussions).slice(0, take);
 }
+
+// ---------------------------------------------------------------------------
+// Committee attendance (parsed from protocols — see scripts/protocols/)
+// ---------------------------------------------------------------------------
+
+/**
+ * A committee's membership, reconstructed from who attended its sittings.
+ *
+ * The service publishes no roster, so this is derived: every protocol lists its
+ * attendees under `חברי הוועדה:` with the chair marked. Someone who never
+ * attends will not appear, and the counts are attendance, not tenure.
+ */
+export async function getCommitteeMembership(committeeId: number, take = 20) {
+  const rows = await prisma.$queryRaw<
+    Array<{ personId: number; sittings: bigint | number; asChair: bigint | number; lastSeen: string | null }>
+  >`
+    SELECT p."personId"                                        AS "personId",
+           COUNT(DISTINCT p."committeeSessionId")              AS "sittings",
+           SUM(CASE WHEN p."role" = 'chair' THEN 1 ELSE 0 END) AS "asChair",
+           MAX(cs."startDate")                                 AS "lastSeen"
+      FROM "CommitteeParticipant" p
+      JOIN "CommitteeSession" cs ON cs."committeeSessionId" = p."committeeSessionId"
+     WHERE cs."committeeId" = ${committeeId}
+       AND p."personId" IS NOT NULL
+       AND p."role" IN ('member', 'chair')
+     GROUP BY p."personId"
+     ORDER BY "sittings" DESC
+  `;
+  if (rows.length === 0) return { members: [], totalSittings: 0, moreCount: 0 };
+
+  const people = await prisma.person.findMany({
+    where: { personId: { in: rows.map((r) => r.personId) } },
+  });
+  const byId = new Map(people.map((p) => [p.personId, p]));
+
+  const totalSittings = await prisma.committeeSession.count({
+    where: { committeeId, participants: { some: {} } },
+  });
+
+  const all = rows
+    .map((r) => ({
+      person: byId.get(r.personId)!,
+      sittings: Number(r.sittings),
+      asChair: Number(r.asChair),
+      lastSeen: r.lastSeen ? new Date(r.lastSeen) : null,
+    }))
+    .filter((r) => r.person);
+
+  // Attendance has a long tail — a busy committee shows 60+ people once every
+  // occasional visitor is counted, which reads as a roster and is not one.
+  return { totalSittings, members: all.slice(0, take), moreCount: Math.max(0, all.length - take) };
+}
+
+/** Committees a member actually sat in, by attendance. */
+export async function getMemberCommitteeAttendance(personId: number, take = 10) {
+  const rows = await prisma.$queryRaw<
+    Array<{ committeeId: number; name: string | null; sittings: bigint | number; asChair: bigint | number }>
+  >`
+    SELECT c."committeeId"                                     AS "committeeId",
+           c."name"                                            AS "name",
+           COUNT(DISTINCT p."committeeSessionId")              AS "sittings",
+           SUM(CASE WHEN p."role" = 'chair' THEN 1 ELSE 0 END) AS "asChair"
+      FROM "CommitteeParticipant" p
+      JOIN "CommitteeSession" cs ON cs."committeeSessionId" = p."committeeSessionId"
+      JOIN "Committee" c        ON c."committeeId" = cs."committeeId"
+     WHERE p."personId" = ${personId} AND p."role" IN ('member', 'chair')
+     GROUP BY c."committeeId", c."name"
+     ORDER BY "sittings" DESC
+     LIMIT ${take}
+  `;
+  return rows.map((r) => ({
+    committeeId: r.committeeId,
+    name: r.name,
+    sittings: Number(r.sittings),
+    asChair: Number(r.asChair),
+  }));
+}
+
+/** How much attendance data exists, for honest labelling in the UI. */
+export async function getAttendanceCoverage() {
+  const [rows, sittings, withData] = await Promise.all([
+    prisma.committeeParticipant.count(),
+    prisma.committeeSession.count(),
+    prisma.committeeSession.count({ where: { participants: { some: {} } } }),
+  ]);
+  return { rows, sittings, withData };
+}

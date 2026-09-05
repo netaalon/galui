@@ -309,24 +309,42 @@ model SessionDocument {
   @@index([committeeSessionId])
 }
 
-/// Phase 2 (stub) — who actually spoke in a committee session.
-/// The OData service does not expose this; rows are produced by the LLM
-/// pipeline in scripts/extract_participants_llm.ts reading `SessionDocument.filePath`.
+/// Who was in the room for a committee sitting.
+///
+/// The OData service publishes no committee membership at all — the position
+/// types "יו״ר ועדה" (41) and "חבר ועדה" (42) exist in KNS_Position but have
+/// zero rows, and no KNS_PersonToPosition row carries a CommitteeID. The
+/// protocols do carry it, in a structured `נכחו:` header, which
+/// scripts/protocols/parse_attendance.py reads deterministically: verified at
+/// 100% header/member/chair yield over 400 protocols, with 99.9% of 1,430
+/// names matching a Person exactly.
+///
+/// This is attendance, not an official roster: a member who never turns up will
+/// not appear. Aggregate across a committee's sittings for its composition.
 model CommitteeParticipant {
   id                 Int     @id @default(autoincrement())
   committeeSessionId Int
   personId           Int?
-  /// Raw speaker name as it appears in the protocol, before matching to a Person.
+  /// The name exactly as the protocol writes it, before matching.
   speakerName        String?
-  /// e.g. "chair", "mk", "minister", "guest", "advisor"
+  /// chair | member | mk | invitee | legal | manager | recorder
   role               String?
+  /// The role text as printed, e.g. `היו"ר, יו"ר ועדת הכלכלה`.
+  roleDetail         String?
+  /// Title and organisation, for invitees and officials.
+  affiliation        String?
+  /// Speaking turns. Only the LLM pass over the protocol body fills this in;
+  /// the attendance header does not carry it.
   timesSpoken        Int     @default(0)
 
   sourceDocumentId   String?
-  /// Model confidence 0-1 for the person match; null when unmatched.
+  /// "protocol-header/v1" for the deterministic parser, or a provider/model
+  /// string when a row came from the LLM pass.
+  extractedBy        String?
+  /// Only meaningful for the LLM pass. Header parsing matches exactly or not
+  /// at all, and leaves this null.
   matchConfidence    Float?
   extractedAt        DateTime @default(now())
-  extractionModel    String?
 
   session  CommitteeSession @relation(fields: [committeeSessionId], references: [committeeSessionId], onDelete: Cascade)
   person   Person?          @relation(fields: [personId], references: [personId], onDelete: SetNull)
@@ -335,6 +353,7 @@ model CommitteeParticipant {
   @@unique([committeeSessionId, speakerName])
   @@index([personId])
   @@index([committeeSessionId])
+  @@index([role])
 }
 
 /// Bookkeeping so the ETL can run incrementally off LastUpdatedDate.

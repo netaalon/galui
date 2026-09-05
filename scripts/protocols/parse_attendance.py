@@ -12,125 +12,148 @@ protocols do carry it, in a structured header:
     חברי הכנסת:
     עודד פורר
     מוזמנים:
-    קרן דקל – יועצת בכירה לשר, משרד האוצר
+    קרן דקל
+    –
+    יועצת בכירה לשר, משרד האוצר
+    רישום פרלמנטרי:
+    סיגל גורדון
+    << נושא >> …body begins…
 
 So this is a section-label parser, not an inference engine — no LLM involved.
 
-Measured on 400 protocols sampled evenly across all 9,135, spanning 2023-02 to
-2026-08:
+Measured over 400 protocols sampled evenly across all 9,135, spanning 2023-02
+to 2026-08: header, committee members and chair all found in 100%; of 1,430
+member names, 1,428 (99.9%) matched a Person exactly and none ambiguously. The
+two misses are source-side — one protocol omits a middle name, another
+misspells "יונתן" as "יונן" — and are left unmatched rather than guessed.
 
-    header found            400/400   100%
-    committee members found 400/400   100%
-    chair identified        400/400   100%
-    names extracted         1,430
-      matched to a Person   1,428     99.9%
-      ambiguous                 0
-    chairs matched          399/400    99.8%
-
-The two unmatched names are source-side, not parser-side: one protocol omits a
-member's middle name, another misspells "יונתן" as "יונן". Both are left
-unmatched rather than guessed.
-
-Note this yields attendance-derived membership — who actually sat in the room —
-not an official roster. For a committee's real composition, aggregate across its
-sittings.
+This yields attendance, not an official roster: a member who never attends will
+not appear. Aggregate across a committee's sittings for its composition.
 """
+
 import re
 
 SECTION_LABELS = {
-    # Hebrew inflects these by gender and number, and a one-woman committee
-    # sitting is labelled "חברת הוועדה" — omitting that singular feminine form
-    # alone accounted for every failure in a 400-protocol sample.
+    # Hebrew inflects these by gender and number, and a one-woman sitting is
+    # headed "חברת הוועדה" — omitting that singular feminine form alone
+    # accounted for every failure in an early 400-protocol run.
     "members":  ["חברי הוועדה", "חברות הוועדה", "חבר הוועדה", "חברת הוועדה",
                  "חברי הועדה", "חברות הועדה", "חבר הועדה", "חברת הועדה"],
-    "mks":      ["חברי הכנסת", "חברות הכנסת", "חבר הכנסת", "חברת הכנסת"],
-    "invitees": ["מוזמנים", "מוזמנים באמצעים מקוונים", "משתתפים באמצעים מקוונים",
-                 "מוזמנים באמצעי תקשורת מקוונים"],
+    # The definite article is sometimes dropped ("חברי כנסת:").
+    "mks":      ["חברי הכנסת", "חברות הכנסת", "חבר הכנסת", "חברת הכנסת",
+                 "חברי כנסת", "חברות כנסת", "חבר כנסת", "חברת כנסת"],
+    # "נוכחים" ("present") is a synonym for "מוזמנים" that introduces officials.
+    # Not recognising it left the parser in the preceding members section, where
+    # it read every official's name *and* job title as committee members —
+    # 7% of member names in a 400-protocol sample.
+    "invitees": ["מוזמנים", "נוכחים", "נוכחות", "משתתפים",
+                 "מוזמנים באמצעים מקוונים", "משתתפים באמצעים מקוונים",
+                 "מוזמנים באמצעי תקשורת מקוונים", "נוכחים באמצעים מקוונים"],
     "legal":    ["ייעוץ משפטי", "יעוץ משפטי"],
-    "manager":  ["מנהלת הוועדה", "מנהל הוועדה", "מנהל/ת הוועדה", "מנהלת הועדה"],
+    "manager":  ["מנהלת הוועדה", "מנהל הוועדה", "מנהל/ת הוועדה",
+                 "מנהלת הועדה", "מנהל הועדה"],
     "recorder": ["רישום פרלמנטרי", "קצרנית", "רשמת פרלמנטרית"],
 }
-LABEL_TO_SECTION = {lab: sec for sec, labs in SECTION_LABELS.items() for lab in labs}
+LABEL_TO_SECTION = {label: sec for sec, labels in SECTION_LABELS.items() for label in labels}
 
 HEB = r"֐-׿"
-# Role phrases that appear on their own line inside an attendance section and
-# are not people: "חבר הכנסת" as a bare label, a committee chair's title with
-# no name attached, and so on. Two of these leaked into a 351-name sample.
+
+# Bare role labels appear on their own lines inside the sections and are not
+# people; two of these leaked into an early sample as attendee names.
 ROLE_ONLY = re.compile(
     rf'^(?:(?:חבר|חברת|חברי|חברות)\s+(?:הכנסת|הוועדה|הועדה)'
     rf'|(?:יושב|יושבת)[־\- ]ראש(?:\s+.*)?'
     rf'|יו"ר(?:\s+.*)?'
-    rf'|נכחו|נוכחים|קרן|—|–)$'
+    rf'|נכחו|נוכחים)$'
 )
-# A body speaker heading, e.g. `היו"ר ינון אזולאי:` or `נעמה לזימי (העבודה):`.
-SPEAKER = re.compile(rf'^(?:<<[^>]*>>\s*)?(?:היו"ר\s+)?[{HEB}\'"׳״ \-]{{2,40}}(?:\s*\([^)]{{1,40}}\))?\s*:$')
+
+# The body opens with bracketed structure markers — << נושא >>, << יור >>,
+# << דובר >> — present in every one of 400 protocols checked. Without a hard
+# boundary the parser runs on and swallows the entire transcript: an early
+# version produced ~1,000 "attendees" per sitting.
+BODY_MARKER = re.compile(r"<<[^>]*>>")
+DISCLAIMER = re.compile(r"^רשימת הנוכחים")
+# Safety net. The first terminator sat at line 173 in the worst case observed.
+MAX_HEADER_LINES = 400
+
 CHAIR = re.compile(r'היו"ר|יו"ר')
+# The dash before a role is not reliably spaced ("משה פסל– היו״ר"), so en/em
+# dashes need no surrounding space. A plain hyphen does, because Hebrew
+# surnames use one ("תמנו-שטה").
+ROLE_SPLIT = re.compile(r"\s*[–—]\s*|\s+-\s+")
 
 
-def _label(line):
-    m = re.match(r"^(?:<<[^>]*>>\s*)?(.{2,40}?)\s*:\s*$", line)
-    if not m:
-        return None
-    return LABEL_TO_SECTION.get(m.group(1).strip())
+def _section_for(line):
+    match = re.match(r"^(?:<<[^>]*>>\s*)?(.{2,44}?)\s*:\s*$", line)
+    return LABEL_TO_SECTION.get(match.group(1).strip()) if match else None
 
 
 def parse_attendees(paragraphs):
-    """-> {section: [entries]} plus `chair`, or None if there is no header."""
+    """-> {members, mks, invitees, legal, manager, recorder, chair} or None.
+
+    Every entry is {"name", "title"}; `title` is the role for a member
+    (`היו"ר`) or the job and organisation for an official.
+    """
     start = next((i for i, l in enumerate(paragraphs) if re.match(r"^נכחו\s*:?\s*$", l)), None)
     if start is None:
         return None
 
-    out = {k: [] for k in SECTION_LABELS}
+    out = {key: [] for key in SECTION_LABELS}
     chair = None
     section = None
-    pending = None  # invitee name awaiting its "–" title
+    pending_name = None
 
-    for line in paragraphs[start + 1:]:
-        sec = _label(line)
-        if sec:
-            section = sec
-            pending = None
-            continue
-
-        # An unlabelled `name:` line means the body has started.
-        if line.endswith(":") and SPEAKER.match(line):
+    for line in paragraphs[start + 1 : start + 1 + MAX_HEADER_LINES]:
+        if BODY_MARKER.search(line) or DISCLAIMER.match(line):
             break
-        if re.match(r"^(סדר[- ]היום|פרוטוקול|הכנסת)\b", line):
+
+        found = _section_for(line)
+        if found:
+            section = found
+            pending_name = None
             continue
 
-        if section is None:
+        # A line ending in a colon is a label, never a person. Section labels
+        # were matched just above, so anything reaching here is a variant we do
+        # not model — skipping it is right either way, and stops strings like
+        # "משתתפים (באמצעים מקוונים):" being stored as attendees.
+        if line.endswith(":"):
+            section = None
             continue
 
-        if section in ("members", "mks"):
-            # `NAME – ROLE` or just `NAME`; the chair is flagged in the role.
-            # The dash is not reliably spaced ("משה פסל– היו״ר"), so en/em
-            # dashes need no surrounding space. A plain hyphen does, because
-            # Hebrew surnames use one ("תמנו-שטה").
-            parts = re.split(r"\s*[–—]\s*|\s+-\s+", line, maxsplit=1)
-            name = parts[0].strip(" ,")
-            role = parts[1].strip() if len(parts) > 1 else None
-            if not name or not re.search(rf"[{HEB}]", name):
-                continue
-            # A bare role label is not an attendee.
-            if ROLE_ONLY.match(name):
-                continue
-            out[section].append({"name": name, "role": role})
-            if section == "members" and role and CHAIR.search(role) and chair is None:
-                chair = name
-        else:
-            # Invitees often span paragraphs: name / "–" / title.
-            if line in ("–", "—", "-"):
-                continue
-            if pending is not None:
-                out[section].append({"name": pending, "title": line})
-                pending = None
-                continue
-            parts = re.split(r"\s+[–—]\s+", line, maxsplit=1)
-            if len(parts) > 1:
-                out[section].append({"name": parts[0].strip(), "title": parts[1].strip()})
-            else:
-                pending = line.strip()
-                out[section].append({"name": pending, "title": None})
-                # keep `pending` so a following title line can attach
-                pending = None if len(out[section]) == 0 else pending
+        if section is None or ROLE_ONLY.match(line) or not re.search(rf"[{HEB}]", line):
+            continue
+
+        # Entries come in two layouts: "name – title" on one line, or split
+        # across three paragraphs as name / "–" / title. A standalone dash
+        # therefore means the next line belongs to the previous entry, and must
+        # never start a new one.
+        if line in ("–", "—", "-"):
+            expect_title = out[section][-1] if out[section] else None
+            pending_name = expect_title
+            continue
+
+        if pending_name is not None:
+            pending_name["title"] = line
+            if section == "members" and CHAIR.search(line) and chair is None:
+                chair = pending_name["name"]
+            pending_name = None
+            continue
+
+        name, has_title, title = _split_role(line)
+        if not name or ROLE_ONLY.match(name):
+            continue
+        entry = {"name": name, "title": title if has_title else None}
+        out[section].append(entry)
+        if section == "members" and has_title and title and CHAIR.search(title) and chair is None:
+            chair = name
+
     return {**out, "chair": chair}
+
+
+def _split_role(line):
+    parts = ROLE_SPLIT.split(line, maxsplit=1)
+    name = parts[0].strip(" ,")
+    if len(parts) > 1:
+        return name, True, parts[1].strip()
+    return name, False, None

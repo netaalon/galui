@@ -10,7 +10,7 @@ import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { countLabel, formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
-import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberQuestions } from "@/lib/queries";
+import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberQuestions } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +28,10 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   const member = await getMember(personId);
   if (!member) notFound();
 
-  const [activity, committees, questions] = await Promise.all([
+  const [activity, committeesByBill, attended, questions] = await Promise.all([
     getMemberActivityByMonth(personId),
     getCommitteesForMember(personId),
+    getMemberCommitteeAttendance(personId, 10),
     getMemberQuestions(personId, 8),
   ]);
 
@@ -180,16 +181,31 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
             <CardHeader>
               <CardTitle>ועדות</CardTitle>
               <CardDescription>
-                חברוּת בוועדות אינה מתפרסמת ב־API; אלה הוועדות שדנו בהצעות החוק
-                של חבר/ת הכנסת.
+                {attended.length > 0
+                  ? "לפי נוכחות בפרוטוקולים; המספר הוא מספר הישיבות."
+                  : "חברוּת בוועדות אינה מתפרסמת ב־API; אלה הוועדות שדנו בהצעות החוק של חבר/ת הכנסת."}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {committees.length === 0 ? (
-                <EmptyState>אף ועדה לא דנה בהצעות החוק שבמאגר.</EmptyState>
+              {attended.length > 0 ? (
+                <ul className="space-y-2.5">
+                  {attended.map((c) => (
+                    <li key={c.committeeId} className="text-sm">
+                      <Link href={`/committees/${c.committeeId}`} className="flex items-baseline gap-2 hover:text-foreground hover:underline">
+                        <span className="min-w-0 flex-1 leading-snug">{c.name}</span>
+                        <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{c.sittings}</span>
+                      </Link>
+                      {c.asChair > 0 ? (
+                        <span className="text-xs text-primary">יו״ר ב־{c.asChair} ישיבות</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : committeesByBill.length === 0 ? (
+                <EmptyState>לא נמצאה נוכחות בוועדות.</EmptyState>
               ) : (
                 <ul className="space-y-2.5">
-                  {committees.map((c) => (
+                  {committeesByBill.map((c) => (
                     <li key={c.committeeId} className="text-sm">
                       <Link href={`/committees/${c.committeeId}`} className="block leading-snug hover:text-foreground hover:underline">
                         {c.name}

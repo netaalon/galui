@@ -38,7 +38,8 @@ async function check(path, fn) {
     /\bfileLink=0(?!\d)/, /\bofficialIdOk=false\b/, /\brows=0(?!\d)/,
     /\bstatCards=0(?!\d)/, /\boverdueSortDescending=false\b/,
     /\bfullNameSearch=0(?!\d)/, /\bmemberQuestionsCard=0(?!\d)/, /\bquestionRows=0(?!\d)/,
-    /\bcommittee cards=0(?!\d)/, /\btypeGroups=0(?!\d)/, /\bcommitteeBars=0(?!\d)/,
+    /\bcommittee cards=0(?!\d)/, /\bmembershipRows=0(?!\d)/, /\bcaveatShown=false\b/,
+    /\bcapped=false\b/, /\bchairCounts=false\b/, /\btypeGroups=0(?!\d)/, /\bcommitteeBars=0(?!\d)/,
     /\bcommitteeBills=0(?!\d)/, /\bmemberCommittees=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
@@ -127,6 +128,18 @@ await check("/committees", async () => {
   const cards = await page.locator('a[href^="/committees/"]').count();
   const groups = await page.locator("section > h2").count();
   return `committee cards=${cards} typeGroups=${groups}`;
+});
+
+// Membership is derived from protocol attendance; the roster is capped so the
+// long tail of occasional visitors does not read as a committee's composition.
+await check("/committees/4186", async () => {
+  const aside = page.locator("aside");
+  const members = await aside.locator('a[href^="/members/"]').count();
+  const text = await aside.innerText();
+  const capped = /מוצגים \d+ הנוכחים/.test(text);
+  const caveat = text.includes("לפי נוכחות בפועל");
+  const chairCount = /יו״ר ×\d/.test(text);
+  return `membershipRows=${members} capped=${capped} caveatShown=${caveat} chairCounts=${chairCount}`;
 });
 
 // The busiest committee: 1,146 sittings once blew SQLite's bound-parameter

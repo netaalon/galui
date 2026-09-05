@@ -11,14 +11,23 @@ import re
 import zipfile
 
 
-def is_ooxml(path):
-    with open(path, "rb") as f:
+def is_ooxml(source):
+    if hasattr(source, "read"):
+        pos = source.tell()
+        head = source.read(2)
+        source.seek(pos)
+        return head == b"PK"
+    with open(source, "rb") as f:
         return f.read(2) == b"PK"
 
 
-def paragraphs(path):
-    """Text paragraphs of the document, in order, blanks dropped."""
-    with zipfile.ZipFile(path) as z:
+def paragraphs(source):
+    """Text paragraphs of the document, in order, blanks dropped.
+
+    `source` is a path or any file-like object, so a download can be parsed
+    from memory without being written to disk.
+    """
+    with zipfile.ZipFile(source) as z:
         name = "word/document.xml"
         if name not in z.namelist():
             candidates = [n for n in z.namelist() if n.endswith("document.xml")]

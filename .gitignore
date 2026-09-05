@@ -60,3 +60,6 @@ next-env.d.ts
 
 # Python
 __pycache__/
+
+# Regenerable protocol caches (26 MB+)
+/data/

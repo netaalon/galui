@@ -2,6 +2,7 @@ import { ExternalLink, FileDown, Gavel } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MemberActivityChart } from "@/components/member-activity-chart";
+import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +12,10 @@ import {
   getCommittee,
   getCommitteeActivity,
   getCommitteeBills,
+  getCommitteeMembership,
   getCommitteeSessions,
 } from "@/lib/queries";
+import { fullName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +33,11 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
   const committee = await getCommittee(committeeId);
   if (!committee) notFound();
 
-  const [sessions, bills, activity] = await Promise.all([
+  const [sessions, bills, activity, membership] = await Promise.all([
     getCommitteeSessions(committeeId, 25),
     getCommitteeBills(committeeId, 25),
     getCommitteeActivity(committeeId),
+    getCommitteeMembership(committeeId),
   ]);
 
   return (
@@ -220,23 +224,75 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
           <Card>
             <CardHeader>
               <CardTitle>הרכב</CardTitle>
+              <CardDescription>
+                לפי נוכחות בפועל בפרוטוקולים — ה־API של הכנסת אינו מפרסם את הרכב
+                הוועדות. מי שלא נכח בישיבה אינו מופיע כאן.
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                חברות בוועדות אינה מתפרסמת ב־API של הכנסת: סוגי התפקיד «יו״ר ועדה»
-                ו«חבר ועדה» מוגדרים בו, אך אין להם ולו רשומה אחת.
-              </p>
+              {membership.members.length === 0 ? (
+                <EmptyState>לא נמצאו פרוטוקולים עם רשימת נוכחים לוועדה זו.</EmptyState>
+              ) : (
+                <ul className="space-y-3">
+                  {membership.members.map((m) => (
+                    <li key={m.person.personId}>
+                      <Link
+                        href={`/members/${m.person.personId}`}
+                        className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1 transition-colors hover:bg-secondary/60"
+                      >
+                        <MemberAvatar person={m.person} className="size-8" />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{fullName(m.person)}</span>
+                            {/* The count matters: chairing 621 sittings and
+                                standing in once are not the same thing. */}
+                            {m.asChair > 0 ? (
+                              <Badge variant="secondary" className="shrink-0 border-0 bg-primary/10 text-[0.6875rem] text-primary">
+                                {m.asChair > 1 ? `יו״ר ×${m.asChair.toLocaleString("he-IL")}` : "יו״ר"}
+                              </Badge>
+                            ) : null}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {m.person.factionName?.trim() ?? ""}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {m.sittings.toLocaleString("he-IL")}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {membership.totalSittings > 0 ? (
+                <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
+                  המספר לצד כל שם הוא מספר הישיבות שבהן נכח/ה, מתוך{" "}
+                  {membership.totalSittings.toLocaleString("he-IL")} ישיבות עם פרוטוקול.
+                  {membership.moreCount > 0
+                    ? ` מוצגים ${membership.members.length} הנוכחים הקבועים ביותר; עוד ${membership.moreCount} נכחו לפחות פעם אחת.`
+                    : ""}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>מקור</CardTitle>
+            </CardHeader>
+            <CardContent>
               <a
                 href={`https://knesset.gov.il/Odata/ParliamentInfo.svc/KNS_Committee(${committee.committeeId})?$format=json`}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
               >
                 <FileDown className="size-3.5" />
                 הרשומה המקורית
               </a>
             </CardContent>
           </Card>
+
         </aside>
       </div>
     </>

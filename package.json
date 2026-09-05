@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
     "smoke": "node scripts/smoke.mjs",
-    "photos": "tsx scripts/fetch-photos.ts"
+    "photos": "tsx scripts/fetch-photos.ts",
+    "attendance": "python3 scripts/protocols/extract_attendance.py && tsx scripts/load-attendance.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
