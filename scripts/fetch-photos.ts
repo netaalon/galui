@@ -1,9 +1,14 @@
 /**
  * Pull MK headshots from Wikimedia Commons.
  *
- *   npx tsx scripts/fetch-photos.ts            # fill in missing photos
- *   npx tsx scripts/fetch-photos.ts --refresh  # re-check everyone
+ *   npx tsx scripts/fetch-photos.ts                 # fill in missing photos (id join)
+ *   npx tsx scripts/fetch-photos.ts --refresh       # re-check everyone
  *   npx tsx scripts/fetch-photos.ts --dry-run
+ *
+ * For members the id join cannot reach, a second, weaker pass matches on name
+ * and requires a human to check the faces before anything is stored:
+ *   npx tsx scripts/fetch-photos.ts --propose       # writes photo-review.{json,html}
+ *   npx tsx scripts/fetch-photos.ts --apply-review  # writes only approve:true entries
  *
  * Deliberately separate from fetch-odata.ts. The Knesset OData service exposes
  * no image of any kind, and its own archive is only reachable through a
@@ -21,6 +26,7 @@
  */
 
 import "dotenv/config";
+import { readFileSync, writeFileSync } from "node:fs";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { chunk } from "./lib/odata.js";
@@ -37,6 +43,14 @@ const ALLOWED_LICENCE = /^(cc0|cc[- ]|public domain|pd-|no restrictions)/i;
 
 const REFRESH = process.argv.includes("--refresh");
 const DRY_RUN = process.argv.includes("--dry-run");
+const PROPOSE = process.argv.includes("--propose");
+const APPLY_REVIEW = process.argv.includes("--apply-review");
+
+const REVIEW_JSON = "photo-review.json";
+const REVIEW_HTML = "photo-review.html";
+
+/** Wikidata: the position "Knesset member". */
+const Q_KNESSET_MEMBER = "Q4047513";
 
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./prisma/dev.db" }),
@@ -131,8 +145,228 @@ function namesAgree(ours: string, theirs: string): boolean {
   return bWords.some((w) => aWords.has(w));
 }
 
+
+// ---------------------------------------------------------------------------
+// Name-match fallback (proposal only — never writes directly)
+// ---------------------------------------------------------------------------
+
+interface Candidate {
+  approve: boolean;
+  personId: number;
+  ourName: string;
+  faction: string | null;
+  wikidataLabel: string;
+  qid: string;
+  imageUrl: string | null;
+  /** Wikidata's party for this item — a second signal, independent of the name. */
+  wikidataParty: string | null;
+  /** True when that party plausibly corresponds to our faction. */
+  partyAgrees: boolean;
+  license: string | null;
+  credit: string | null;
+  commonsPage: string | null;
+  memberPage: string;
+}
+
+/**
+ * Some members have a Wikidata item carrying a photo but no P9770, so the id
+ * join misses them. Matching on name instead can recover those — but a wrong
+ * name match does not fail visibly, it puts a real person's face on the wrong
+ * MK. So this pass only ever *proposes*: it writes a review file and an HTML
+ * contact sheet, and nothing reaches the database until a human approves it.
+ *
+ * The gate is deliberately strict: the Wikidata label must equal our name once
+ * normalised, the item must hold the position "Knesset member" (Q4047513), and
+ * the name must resolve to exactly one such item. Ambiguity is rejected, not
+ * guessed.
+ */
+async function proposeByName() {
+  const people = await prisma.person.findMany({
+    where: { isMk: true, imageUrl: null },
+    select: { personId: true, firstName: true, lastName: true, factionName: true },
+  });
+  console.log(`${people.length} members still without a photo`);
+  if (people.length === 0) return;
+
+  const values = people.map((p) => `"${normalise(`${p.firstName} ${p.lastName}`)}"@he`).join(" ");
+  const sparql = `
+    SELECT ?name ?person ?image (SAMPLE(?partyLabel) AS ?party) WHERE {
+      VALUES ?name { ${values} }
+      ?person rdfs:label ?name .
+      ?person wdt:P39 wd:${Q_KNESSET_MEMBER} .
+      OPTIONAL { ?person wdt:P18 ?image . }
+      OPTIONAL { ?person wdt:P102 ?partyItem . ?partyItem rdfs:label ?partyLabel . FILTER(lang(?partyLabel) = "he") }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "he,en". }
+    } GROUP BY ?name ?person ?image`;
+  console.log("Querying Wikidata by name, gated on the Knesset-member position…");
+  const data = await getJson<{
+    results: {
+      bindings: Array<{ name: { value: string }; person: { value: string }; image?: { value: string }; party?: { value: string } }>;
+    };
+  }>(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`);
+
+  // Reject any name that resolves to more than one Knesset member.
+  const byName = new Map<string, Array<{ qid: string; image?: string; party?: string }>>();
+  for (const r of data.results.bindings) {
+    const qid = r.person.value.split("/").pop() ?? "";
+    byName.set(r.name.value, [...(byName.get(r.name.value) ?? []), { qid, image: r.image?.value, party: r.party?.value }]);
+  }
+
+  const titles: string[] = [];
+  const staged: Array<{ person: (typeof people)[number]; qid: string; title: string; party?: string }> = [];
+  let ambiguous = 0, noItem = 0, noPhoto = 0;
+
+  for (const p of people) {
+    const key = normalise(`${p.firstName} ${p.lastName}`);
+    const hits = byName.get(key);
+    if (!hits || hits.length === 0) { noItem++; continue; }
+    if (hits.length > 1) { ambiguous++; console.warn(`  ! ambiguous, skipped: ${key} -> ${hits.map((h) => h.qid).join(", ")}`); continue; }
+    const hit = hits[0];
+    if (!hit.image) { noPhoto++; continue; }
+    const title = decodeURIComponent(hit.image.split("/").pop() ?? "").replace(/_/g, " ");
+    titles.push(title);
+    staged.push({ person: p, qid: hit.qid, title, party: hit.party });
+  }
+  console.log(`  ${staged.length} candidates · ${noItem} no item · ${noPhoto} item without a photo · ${ambiguous} ambiguous`);
+  if (staged.length === 0) return;
+
+  console.log("\nFetching file info from Commons…");
+  const info = await fetchCommonsInfo([...new Set(titles)]);
+
+  const candidates: Candidate[] = [];
+  for (const { person, qid, title, party } of staged) {
+    const meta = info.get(title);
+    const licence = meta?.extmetadata?.LicenseShortName?.value ? strip(meta.extmetadata.LicenseShortName.value) : null;
+    if (!meta?.thumburl || !licence || !ALLOWED_LICENCE.test(licence)) continue;
+    candidates.push({
+      approve: false,
+      personId: person.personId,
+      ourName: `${person.firstName} ${person.lastName}`,
+      faction: person.factionName?.trim() ?? null,
+      wikidataLabel: normalise(`${person.firstName} ${person.lastName}`),
+      qid,
+      wikidataParty: party ?? null,
+      partyAgrees: partiesAgree(person.factionName, party),
+      imageUrl: cleanUrl(meta.thumburl),
+      license: licence,
+      credit: meta.extmetadata?.Attribution?.value
+        ? strip(meta.extmetadata.Attribution.value)
+        : meta.extmetadata?.Artist?.value
+          ? strip(meta.extmetadata.Artist.value)
+          : null,
+      commonsPage: meta.descriptionurl ? cleanUrl(meta.descriptionurl) : null,
+      memberPage: `/members/${person.personId}`,
+    });
+  }
+
+  writeFileSync(REVIEW_JSON, JSON.stringify(candidates, null, 2), "utf8");
+  writeFileSync(REVIEW_HTML, renderReview(candidates), "utf8");
+  console.log(`\n${candidates.length} candidates written to ${REVIEW_JSON}`);
+  console.log(`Open ${REVIEW_HTML} in a browser and check every face against the name.`);
+  console.log(`Then set "approve": true on the ones that are right and run:`);
+  console.log(`  npx tsx scripts/fetch-photos.ts --apply-review`);
+}
+
+/**
+ * Faction names differ between the Knesset and Wikidata ("הליכוד" vs "ליכוד",
+ * ש"ס's full ceremonial name vs its common one), so compare on a shared word
+ * rather than equality. This only flags for the reviewer; it never gates.
+ */
+function partiesAgree(faction: string | null | undefined, party: string | null | undefined): boolean {
+  if (!faction || !party) return false;
+  const words = (s: string) => new Set(normalise(s).replace(/[״"׳']/g, "").split(" ").filter((w) => w.length > 2));
+  const a = words(faction);
+  return [...words(party)].some((w) => a.has(w));
+}
+
+/** A contact sheet, because names in a JSON file cannot be checked against faces. */
+function renderReview(candidates: Candidate[]): string {
+  const cards = candidates
+    .map(
+      (c) => `
+    <figure>
+      <img src="${c.imageUrl}" alt="" loading="lazy">
+      <figcaption>
+        <strong>${c.ourName}</strong>
+        <span>${c.faction ?? ""}</span>
+        <span class="${c.partyAgrees ? "ok" : "warn"}">${
+          c.partyAgrees ? "✓ מפלגה תואמת" : `⚠ מפלגה בוויקינתונים: ${c.wikidataParty ?? "לא ידועה"}`
+        }</span>
+        <span class="meta">${c.license ?? ""}${c.credit ? ` · ${c.credit}` : ""}</span>
+        <span class="meta">
+          <a href="https://www.wikidata.org/wiki/${c.qid}" target="_blank" rel="noreferrer">${c.qid}</a>
+          ${c.commonsPage ? `· <a href="${c.commonsPage}" target="_blank" rel="noreferrer">Commons</a>` : ""}
+        </span>
+      </figcaption>
+    </figure>`,
+    )
+    .join("");
+
+  return `<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8">
+<title>Galui — photo review</title>
+<style>
+ body{font-family:system-ui,sans-serif;margin:2rem;background:#fafafa;color:#111}
+ h1{font-size:1.25rem} p{color:#555;max-width:52rem;line-height:1.6}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1.25rem;margin-top:1.5rem}
+ figure{margin:0;background:#fff;border:1px solid #e3e3e3;border-radius:10px;overflow:hidden}
+ img{width:100%;height:210px;object-fit:cover;object-position:top;display:block;background:#eee}
+ figcaption{padding:.6rem .7rem;display:flex;flex-direction:column;gap:.15rem;font-size:.82rem}
+ .meta{color:#666;font-size:.72rem}
+ .ok{color:#15803d;font-size:.72rem}
+ .warn{color:#b45309;font-size:.72rem}
+ a{color:#2563eb}
+</style>
+<h1>בדיקת תצלומים — ${candidates.length} מועמדים</h1>
+<p>כל תצלום כאן הותאם <strong>לפי שם</strong>, לא לפי מזהה — ולכן הוא עלול להיות של אדם אחר.
+בדקו שכל פנים מתאימות לשם שמתחתן, ואז סמנו <code>"approve": true</code> ב־<code>${REVIEW_JSON}</code>
+עבור אלה שנכונים בלבד. מה שלא סומן לא ייכתב.</p>
+<p><strong>${candidates.filter((c) => !c.partyAgrees).length}</strong> מהמועמדים מסומנים באזהרה —
+המפלגה בוויקינתונים אינה תואמת את הסיעה שלנו. בדקו אותם בקפידה יתרה.</p>
+<div class="grid">${cards}</div>
+</html>`;
+}
+
+async function applyReview() {
+  let candidates: Candidate[];
+  try {
+    candidates = JSON.parse(readFileSync(REVIEW_JSON, "utf8"));
+  } catch {
+    console.error(`Could not read ${REVIEW_JSON}. Run with --propose first.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const approved = candidates.filter((c) => c.approve === true);
+  console.log(`${candidates.length} candidates, ${approved.length} approved`);
+  if (approved.length === 0) {
+    console.log(`Nothing to write. Set "approve": true on the entries you have verified.`);
+    return;
+  }
+
+  for (const c of approved) {
+    if (!c.imageUrl) continue;
+    if (DRY_RUN) { console.log(`  would write ${c.ourName}`); continue; }
+    await prisma.person.update({
+      where: { personId: c.personId },
+      data: {
+        imageUrl: c.imageUrl,
+        imageCredit: c.credit,
+        imageLicense: c.license,
+        imageSourceUrl: c.commonsPage,
+      },
+    });
+  }
+  console.log(`${DRY_RUN ? "Would write" : "Wrote"} ${approved.length} approved photos.`);
+  const serving = await prisma.person.count({ where: { isMk: true, mkEndDate: null } });
+  const servingWith = await prisma.person.count({ where: { isMk: true, mkEndDate: null, imageUrl: { not: null } } });
+  console.log(`coverage: ${servingWith}/${serving} serving`);
+}
+
 async function main() {
   console.log(`Galui photo fetch — Wikimedia Commons${DRY_RUN ? " (dry run)" : ""}`);
+
+  if (APPLY_REVIEW) return applyReview();
+  if (PROPOSE) return proposeByName();
 
   const people = await prisma.person.findMany({
     where: { isMk: true, siteId: { not: null }, ...(REFRESH ? {} : { imageUrl: null }) },
