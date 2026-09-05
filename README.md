@@ -101,6 +101,14 @@ Things worth knowing, all verified against the live service:
   ingested bill appears in.
 - Continuation bills can be read in sittings of an **earlier** term, which is not
   mirrored; those items are skipped rather than dangling.
+- **Non-bill plenum items carry no status upstream** — queries, notices and
+  actions under law arrive with a null `StatusID` (328 of 2,354 items). Bill
+  items always carry one, so the reading history is unaffected.
+- The default run mirrors a **sample**, not the whole term: 100 bills, 100
+  committee sittings and 100 plenum agendas, expanding to ~1,155 bills once
+  agendas are followed, out of 7,491 in Knesset 25. Raise it with `--bills` /
+  `--sessions` / `--plenum`. A bill outside the sample still appears on a
+  sitting's agenda, just without a link.
 - **Document ids are not unique.** `$metadata` declares `DocumentBillID` /
   `DocumentCommitteeSessionID` / `DocumentPlenumSessionID` as entity keys, but
   the same document is published once per format (DOC and PDF) as separate rows
@@ -154,20 +162,10 @@ ambiguous is stored unmatched rather than guessed.
 **Status:** parsing, MK name-matching and persistence are tested and working.
 The provider HTTP calls are written to each vendor's documented shape but have
 **never been executed** — no API key was available. Treat the first live run as
-the integration test.
+the integration test ([#5](https://github.com/netaalon/galui/issues/5)).
 
-## Known gaps
+## What's next
 
-- **No member photos.** The OData service exposes none, and scraping
-  knesset.gov.il is out of scope, so members render as initials.
-  `Person.imageUrl` is ready for a licensed source.
-- **Plenum transcripts are not parsed.** They are linked, not read; the Phase 2
-  extractor currently targets committee protocols only.
-- **Non-bill plenum items carry no status upstream** (queries, notices, actions
-  under law — 328 of 2,354 items). Bill items always do, so the reading history
-  is unaffected.
-- **Default sample is partial** (100 bills, 100 committee sessions, 100 plenum
-  agendas — expanding to ~1,155 bills after backfill, out of 7,491 in this
-  Knesset). Raise it with `--bills` / `--sessions` / `--plenum`. Bills outside
-  the sample still appear on a sitting's agenda, just without a link.
-- **Search is a SQL `contains`** over the local mirror, not full-text.
+Planned work is tracked in [issues](https://github.com/netaalon/galui/issues) —
+extracting the דברי הסבר explanatory notes from bill PDFs (#1), ingesting the
+full Knesset 25 corpus (#2), incremental ingestion (#3) and full-text search (#4).
