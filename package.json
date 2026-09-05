@@ -14,7 +14,8 @@
     "db:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "photos": "tsx scripts/fetch-photos.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

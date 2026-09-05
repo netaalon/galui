@@ -76,9 +76,15 @@ export function truncate(s: string | null | undefined, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** knesset.gov.il member page for an MK, when we know their site code. */
-export function knessetMemberUrl(mkSiteCode: string | null | undefined): string | null {
-  return mkSiteCode ? `https://main.knesset.gov.il/mk/Pages/MkPersonalDetails.aspx?MkPersonalDetailsID=${mkSiteCode}` : null;
+/**
+ * Official knesset.gov.il member page.
+ *
+ * Keyed on SiteId, not MKSiteCode — the two are different id spaces over
+ * overlapping integer ranges, so the wrong one links to a real page belonging
+ * to somebody else.
+ */
+export function knessetMemberUrl(siteId: number | null | undefined): string | null {
+  return siteId ? `https://main.knesset.gov.il/mk/Apps/mk/mk-personal-details/${siteId}` : null;
 }
 
 /**

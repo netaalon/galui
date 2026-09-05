@@ -26,7 +26,7 @@ async function check(path, fn) {
   console.log("  " + result);
   console.log("  console errors: " + (errors.length ? errors.join(" | ") : "none"));
   if (errors.length) failures.push(`${path}: ${errors.join(" | ")}`);
-  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1/.test(result)) failures.push(`${path}: ${result}`);
+  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1|photosLoaded=0|photoLoaded=false|creditShown=0|fileLink=0|officialIdOk=false/.test(result)) failures.push(`${path}: ${result}`);
 }
 
 await check("/members/30839", async () => {
@@ -110,7 +110,22 @@ await check("/", async () => {
 await check("/members", async () => {
   const cards = await page.locator('a[href^="/members/"]').count();
   const blocs = await page.locator("text=קואליציה").count();
-  return `member cards=${cards} blocBadges=${blocs}`;
+  await page.waitForTimeout(1200); // let lazy avatars settle
+  const imgs = await page.locator('img[src*="wikimedia"]').count();
+  const loaded = await page
+    .locator('img[src*="wikimedia"]')
+    .evaluateAll((ns) => ns.filter((n) => n.naturalWidth > 0).length);
+  return `member cards=${cards} blocBadges=${blocs} photos=${imgs} photosLoaded=${loaded}`;
+});
+
+// Photos are CC BY-SA / CC BY: the credit must accompany them.
+await check("/members/30749", async () => {
+  const photo = await page.locator('img[src*="wikimedia"]').first().evaluate((n) => n.naturalWidth > 0).catch(() => false);
+  const credit = await page.locator("text=/תצלום:/").count();
+  const fileLink = await page.locator('a[href*="commons.wikimedia.org/wiki/File:"]').count();
+  const official = (await page.locator('a[href*="mk-personal-details"]').getAttribute("href")) ?? "";
+  // Must key on SiteId (1029), not MKSiteCode (1016).
+  return `photoLoaded=${photo} creditShown=${credit} fileLink=${fileLink} officialIdOk=${official.endsWith("/1029")}`;
 });
 
 // Sorting is URL-driven; the controls are optimistic so they must reflect the

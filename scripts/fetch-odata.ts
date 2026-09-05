@@ -160,12 +160,14 @@ async function ingestPeople() {
     fetchAll<RawMkSiteCode>("KNS_MkSiteCode"),
   ]);
   const codeByPerson = new Map(siteCodes.map((s) => [s.KnsID, s.MKSiteCode]));
+  const siteIdByPerson = new Map(siteCodes.map((s) => [s.KnsID, s.SiteId]));
 
   const n = await writeBatched(people, (r) => {
     const data = {
       personId: r.PersonID, firstName: r.FirstName, lastName: r.LastName,
       genderDesc: r.GenderDesc, email: r.Email, isCurrent: parseBool(r.IsCurrent),
       mkSiteCode: codeByPerson.get(r.PersonID) ?? null,
+      siteId: siteIdByPerson.get(r.PersonID) ?? null,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.person.upsert({ where: { personId: r.PersonID }, create: data, update: data });

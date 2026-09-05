@@ -126,6 +126,11 @@ export default async function MembersPage({
       <p className="mt-8 text-xs leading-relaxed text-muted-foreground">
         שיוך לקואליציה או לאופוזיציה אינו מתפרסם ב־API של הכנסת ונקבע לפי טבלה
         ידנית ({BLOC_VERIFIED_ON}). תפקידי הממשלה נלקחים ישירות מ־KNS_PersonToPosition.
+        התצלומים מ־
+        <a href="https://commons.wikimedia.org/" target="_blank" rel="noreferrer" className="underline underline-offset-4 hover:text-foreground">
+          ויקישיתוף
+        </a>
+        , ברישיונות חופשיים; הקרדיט המלא מופיע בעמוד של כל חבר/ת כנסת.
       </p>
     </>
   );

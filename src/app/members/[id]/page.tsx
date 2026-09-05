@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlocBadge, GovernmentBadge } from "@/components/bloc-badge";
 import { MemberActivityChart } from "@/components/member-activity-chart";
-import { MemberAvatar } from "@/components/member-avatar";
+import { MemberAvatar, PhotoCredit } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -33,16 +33,25 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   ]);
 
   const leadCount = member.billsInitiated.filter((b) => b.isInitiator).length;
-  const siteUrl = knessetMemberUrl(member.mkSiteCode);
+  const siteUrl = knessetMemberUrl(member.siteId);
 
   return (
     <>
       <header className="mb-8 flex flex-wrap items-start gap-5">
-        <MemberAvatar person={member} className="size-20 text-xl" />
+        <div className="space-y-1.5">
+          <MemberAvatar person={member} className="size-24 text-xl" />
+          <PhotoCredit person={member} className="max-w-24 leading-tight" />
+        </div>
         <div className="min-w-0 flex-1 space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{fullName(member)}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            {member.factionName ? <Badge variant="secondary">{member.factionName.trim()}</Badge> : null}
+            {/* Some official faction names run to 60+ characters; the badge
+                defaults to nowrap + shrink-0, which pushes it off-screen. */}
+            {member.factionName ? (
+              <Badge variant="secondary" className="h-auto max-w-full shrink whitespace-normal text-start">
+                {member.factionName.trim()}
+              </Badge>
+            ) : null}
             <BlocBadge bloc={member.bloc} />
             <GovernmentBadge role={member.governmentRole} />
             {/* roleDesc can restate the government role; show it only when it adds something. */}

@@ -43,6 +43,7 @@ primary key.
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run ingest` | ETL from the Knesset OData API |
 | `npm run ingest -- --knesset=25 --bills=500 --sessions=300 --plenum=200` | Widen the sample |
+| `npm run photos` | Fetch MK headshots from Wikimedia Commons |
 | `npm run extract-participants` | Phase 2 LLM protocol extraction (see below) |
 | `npm run db:studio` | Browse the local database |
 | `npm run typecheck` / `npm run lint` | Checks |
@@ -115,6 +116,11 @@ Things worth knowing, all verified against the live service:
   sharing one id, differing only in `ApplicationID`. Keying on the id alone
   silently drops every alternate format, so rows are stored under a synthetic
   `"<documentId>:<applicationId>"` id.
+- **`MKSiteCode` and `SiteId` are different ids**, both small integers over
+  overlapping ranges — `KNS_MkSiteCode` carries both. `SiteId` is the one
+  knesset.gov.il member pages, the Knesset photo archive and Wikidata's P9770
+  key on. Confusing them does not fail loudly, it returns the wrong person:
+  site code 837 is חנין זועבי, SiteId 837 is חמד עמאר. Both are stored.
 - **Coalition/opposition membership is not published anywhere in the service.**
   The only bloc records are two leadership posts, `PositionID` 30
   (יושב–ראש הקואליציה) and 131 (ראש האופוזיציה), one MK each. It cannot be
@@ -161,6 +167,25 @@ Things worth knowing, all verified against the live service:
   add a Recharts bar chart of bills sponsored per month (split lead vs.
   co-signed), committees, and recent bills.
 - `/search` — across bills, members and sessions in the local mirror.
+
+## Member photos
+
+The OData service exposes no image, and the Knesset's own archive sits behind a
+bot-protected host with no stated licence. The Knesset Archives did, however,
+donate a batch of MK portraits to **Wikimedia Commons** under CC BY-SA, credited
+to the photographer — so `npm run photos` pulls them from there instead.
+
+The join runs through Wikidata property **P9770** ("Knesset member ID"), which
+is `SiteId`. Because a wrong id yields a real photo of the wrong person rather
+than a miss, every match is name-checked against the Wikidata label before it is
+written, and disagreements are skipped and reported.
+
+Only free licences are accepted (CC*, CC0, public domain); anything else is
+skipped. Credit, licence and a link to the Commons file page are stored
+alongside the URL and rendered on the member page — CC BY-SA requires it.
+
+Coverage is **120 of 151 members, 94 of 120 serving**. The rest fall back to
+initials, which is a normal state rather than a failure.
 
 ## Phase 2 — who spoke in committee (stub)
 

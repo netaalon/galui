@@ -43,11 +43,23 @@ model Person {
   mkStartDate DateTime?
   mkEndDate   DateTime?
 
-  /// KNS_MkSiteCode.MKSiteCode — stable id used by knesset.gov.il member pages.
+  /// KNS_MkSiteCode.MKSiteCode.
   mkSiteCode  String?
-  /// No public headshot endpoint exists on the OData service; left null by the
-  /// ETL and rendered as an initials avatar until a licensed source is wired up.
+  /// KNS_MkSiteCode.SiteId — a DIFFERENT id from mkSiteCode, and the one that
+  /// knesset.gov.il member pages, the Knesset photo archive and Wikidata's
+  /// P9770 all key on. Both id spaces are small integers drawn from overlapping
+  /// ranges, so confusing them silently yields the wrong person rather than a
+  /// miss: site code 837 is חנין זועבי, while SiteId 837 is חמד עמאר.
+  siteId      Int?
+
+  /// Headshot, sourced from Wikimedia Commons (see scripts/fetch-photos.ts).
+  /// The OData service exposes no image of its own.
   imageUrl    String?
+  /// Required by the CC BY-SA licence these photos carry — never render the
+  /// image without it.
+  imageCredit String?
+  imageLicense String?
+  imageSourceUrl String?
 
   lastUpdatedDate DateTime?
 
@@ -58,6 +70,7 @@ model Person {
   @@index([isMk, knessetNum])
   @@index([bloc])
   @@index([lastName])
+  @@index([siteId])
 }
 
 /// KNS_PersonToPosition — one row per role a person holds in a Knesset term.
