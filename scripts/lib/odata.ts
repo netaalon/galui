@@ -92,7 +92,7 @@ export async function* pages<T>(
     // A short page means the result set is exhausted.
     if (rows.length < Math.min(PAGE_SIZE, remaining)) return;
 
-    await sleep(150); // be a polite client
+    await sleep(50); // concurrency is bounded by mapLimit; keep a light touch
   }
 }
 
@@ -137,9 +137,88 @@ export function orIn(field: string, ids: Array<number | string>): string {
   return ids.map((id) => `${field} eq ${id}`).join(" or ");
 }
 
-/** OData filters have a length limit; chunk id lists before building clauses. */
+/** Split a list into fixed-size groups. */
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * The service rejects long request URLs with a bare 404 — the ceiling is about
+ * 2 KB of *encoded* URL, not a number of ids. So the safe batch size depends on
+ * how long the field name is: 48 ids fit for `BillID`, but only ~45 for
+ * `CommitteeSessionID`, and 50 of those already 404s. Budget by length instead
+ * of guessing a constant.
+ */
+const URL_BUDGET = 1600;
+
+export function chunkForFilter(ids: Array<number | string>, field: string, extra = 0): Array<Array<number | string>> {
+  const perId = encodeURIComponent(`${field} eq 000000000 or `).length;
+  const size = Math.max(1, Math.floor((URL_BUDGET - extra) / perId));
+  return chunk(ids, size);
+}
+
+/**
+ * Run tasks with bounded concurrency. The service handles a handful of parallel
+ * requests comfortably (6 at once measured ~4x faster than serial with no
+ * errors); this keeps that speedup without hammering a government endpoint.
+ */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  let done = 0;
+
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i], i);
+      done++;
+      onProgress?.(done, items.length);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+/** Default parallelism for by-parent fetches. */
+export const CONCURRENCY = 5;
+
+/**
+ * Fetch every row of `entity` whose `field` matches one of `ids`, batching the
+ * ids into as few requests as the URL budget allows and running those in
+ * parallel. This is the workhorse for the child tables, none of which carry a
+ * KnessetNum to filter on directly.
+ */
+export async function fetchByIds<T>(
+  entity: string,
+  field: string,
+  ids: Array<number | string>,
+  opts: { prefix?: string; label?: string } = {},
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const prefix = opts.prefix ? `${opts.prefix} and ` : "";
+  const batches = chunkForFilter(ids, field, encodeURIComponent(prefix).length);
+  const out: T[] = [];
+
+  await mapLimit(
+    batches,
+    CONCURRENCY,
+    async (batch) => {
+      const rows = await fetchAll<T>(entity, { filter: `${prefix}(${orIn(field, batch)})` });
+      out.push(...rows);
+    },
+    (done, total) => {
+      if (opts.label) process.stdout.write(`\r  … ${opts.label} ${done}/${total} batches, ${out.length} rows`);
+    },
+  );
+  if (opts.label) process.stdout.write("\r".padEnd(70) + "\r");
   return out;
 }

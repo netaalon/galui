@@ -29,7 +29,7 @@ Hebrew. Database columns are English throughout, per the schema convention.
 npm install
 cp .env.example .env         # DATABASE_URL="file:./prisma/dev.db"
 npx prisma migrate dev       # create the SQLite database
-npm run ingest               # pull real data from the Knesset API (~4 min)
+npm run ingest               # mirror the whole term (~8 min)
 npm run dev
 ```
 
@@ -42,7 +42,7 @@ primary key.
 | --- | --- |
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run ingest` | ETL from the Knesset OData API |
-| `npm run ingest -- --knesset=25 --bills=500 --sessions=300 --plenum=200` | Widen the sample |
+| `npm run ingest -- --bills=100 --sessions=100` | Small slice, for quick local iteration |
 | `npm run photos` | Fetch MK headshots from Wikimedia Commons |
 | `npm run extract-participants` | Phase 2 LLM protocol extraction (see below) |
 | `npm run db:studio` | Browse the local database |
@@ -71,6 +71,10 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_DocumentQuery` | `QuestionDocument` | The question text and the minister's reply |
 | `KNS_GovMinistry` | `GovMinistry` | |
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
+
+A full run mirrors roughly: 7,587 bills · 17,332 sponsorships · 10,895 committee
+sittings · 13,837 agenda items · 418 plenum sittings · 13,431 plenum items ·
+1,580 written questions · 69,000 documents. The SQLite file lands around 35 MB.
 
 Things worth knowing, all verified against the live service:
 

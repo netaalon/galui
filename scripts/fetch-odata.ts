@@ -12,7 +12,7 @@ import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { blocFor, unmappedFactions } from "../src/lib/factions.js";
-import { chunk, count, fetchAll, orIn, parseBool, parseDate } from "./lib/odata.js";
+import { chunk, count, fetchAll, fetchByIds, parseBool, parseDate } from "./lib/odata.js";
 
 // ---------------------------------------------------------------------------
 // OData row shapes (only the fields we persist)
@@ -43,19 +43,30 @@ interface RawPlenumDocument { DocumentPlenumSessionID: string | number; PlenumSe
 // Config
 // ---------------------------------------------------------------------------
 
-function arg(name: string, fallback: number): number {
+function arg(name: string, fallback: number | undefined): number | undefined {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
   if (!hit) return fallback;
   const n = Number(hit.split("=")[1]);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-const KNESSET = arg("knesset", 25);
-const BILL_LIMIT = arg("bills", 100);
-const SESSION_LIMIT = arg("sessions", 100);
-// Full agendas are pulled for this many recent plenum sittings; the sittings
-// themselves are all ingested, since Knesset 25 has only ~418 of them.
-const PLENUM_AGENDA_LIMIT = arg("plenum", 100);
+const KNESSET = arg("knesset", 25)!;
+
+/**
+ * The ETL mirrors the whole term by default.
+ *
+ * It used to take a sample, and every gap that produced looked like a bug in
+ * the app rather than a missing row: bills on a sitting's agenda with nowhere
+ * to link, timelines missing the committee stage that produced a reading, 95%
+ * of committee items absent for backfilled bills. A partial mirror cannot be
+ * told apart from broken data by anyone using the site.
+ *
+ * The limits survive only as an escape hatch for quick local iteration
+ * (`--bills=100`); leaving them unset ingests everything.
+ */
+const BILL_LIMIT = arg("bills", undefined);
+const SESSION_LIMIT = arg("sessions", undefined);
+const PLENUM_AGENDA_LIMIT = arg("plenum", undefined);
 
 /** KNS_Position ids that mean "this person is a Knesset Member". */
 const POSITION_MK = [43, 61]; // חבר הכנסת / חברת הכנסת
@@ -283,7 +294,7 @@ async function ingestPositions() {
 }
 
 async function ingestBills(): Promise<number[]> {
-  step(`KNS_Bill — ${BILL_LIMIT} most recently updated in Knesset ${KNESSET}`);
+  step(`KNS_Bill — ${BILL_LIMIT ? `${BILL_LIMIT} most recently updated` : "all"} in Knesset ${KNESSET}`);
   const total = await count("KNS_Bill", `KnessetNum eq ${KNESSET}`);
   const rows = await fetchAll<RawBill>("KNS_Bill", {
     filter: `KnessetNum eq ${KNESSET}`,
@@ -316,11 +327,7 @@ async function ingestBills(): Promise<number[]> {
 
 async function ingestBillInitiators(billIds: number[]) {
   step("KNS_BillInitiator — sponsors of the ingested bills");
-  const rows: RawBillInitiator[] = [];
-  // OData filters have a practical URL length limit, so ask in id batches.
-  for (const ids of chunk(billIds, 20)) {
-    rows.push(...(await fetchAll<RawBillInitiator>("KNS_BillInitiator", { filter: orIn("BillID", ids) })));
-  }
+  const rows = await fetchByIds<RawBillInitiator>("KNS_BillInitiator", "BillID", billIds, { label: "initiators" });
   const knownPeople = new Set((await prisma.person.findMany({ select: { personId: true } })).map((p) => p.personId));
   const usable = rows.filter((r) => knownPeople.has(r.PersonID));
 
@@ -339,30 +346,27 @@ async function ingestBillInitiators(billIds: number[]) {
 /** Session items for the ingested bills — these drive the bill timeline. */
 async function findSessionsForBills(billIds: number[]): Promise<{ items: RawCmtSessionItem[]; sessionIds: number[] }> {
   step("KNS_CmtSessionItem — committee discussions of the ingested bills");
-  const items: RawCmtSessionItem[] = [];
-  for (const ids of chunk(billIds, 20)) {
-    items.push(...(await fetchAll<RawCmtSessionItem>("KNS_CmtSessionItem", {
-      filter: `ItemTypeID eq ${ITEM_TYPE_BILL} and (${orIn("ItemID", ids)})`,
-    })));
-  }
+  const items = await fetchByIds<RawCmtSessionItem>("KNS_CmtSessionItem", "ItemID", billIds, {
+    prefix: `ItemTypeID eq ${ITEM_TYPE_BILL}`,
+    label: "bill committee items",
+  });
   const sessionIds = [...new Set(items.map((i) => i.CommitteeSessionID))];
   done(`${items.length} discussions across ${sessionIds.length} sessions`);
   return { items, sessionIds };
 }
 
 async function ingestSessions(extraSessionIds: number[]): Promise<number[]> {
-  step(`KNS_CommitteeSession — ${SESSION_LIMIT} most recent in Knesset ${KNESSET} + sessions referenced by ingested bills`);
+  step(`KNS_CommitteeSession — ${SESSION_LIMIT ? `${SESSION_LIMIT} most recent` : "all"} in Knesset ${KNESSET}`);
   const rows = await fetchAll<RawCommitteeSession>("KNS_CommitteeSession", {
     filter: `KnessetNum eq ${KNESSET}`,
     orderby: "StartDate desc",
     limit: SESSION_LIMIT,
   });
 
+  // Bills can be discussed in sittings of an earlier term; pull those in too.
   const have = new Set(rows.map((r) => r.CommitteeSessionID));
   const missing = extraSessionIds.filter((id) => !have.has(id));
-  for (const ids of chunk(missing, 20)) {
-    rows.push(...(await fetchAll<RawCommitteeSession>("KNS_CommitteeSession", { filter: orIn("CommitteeSessionID", ids) })));
-  }
+  rows.push(...(await fetchByIds<RawCommitteeSession>("KNS_CommitteeSession", "CommitteeSessionID", missing, { label: "extra sessions" })));
 
   const knownCommittees = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
   const n = await writeBatched(rows, (r) => {
@@ -387,10 +391,9 @@ async function collectSessionItems(billItems: RawCmtSessionItem[], sessionIds: n
   step("KNS_CmtSessionItem — full agendas of the ingested sessions");
   const items = [...billItems];
   const seen = new Set(items.map((i) => i.CmtSessionItemID));
-  for (const ids of chunk(sessionIds, 20)) {
-    for (const row of await fetchAll<RawCmtSessionItem>("KNS_CmtSessionItem", { filter: orIn("CommitteeSessionID", ids) })) {
-      if (!seen.has(row.CmtSessionItemID)) { seen.add(row.CmtSessionItemID); items.push(row); }
-    }
+  const fetched = await fetchByIds<RawCmtSessionItem>("KNS_CmtSessionItem", "CommitteeSessionID", sessionIds, { label: "agendas" });
+  for (const row of fetched) {
+    if (!seen.has(row.CmtSessionItemID)) { seen.add(row.CmtSessionItemID); items.push(row); }
   }
   done(`${items.length} agenda items`);
   return items;
@@ -413,10 +416,7 @@ async function backfillReferencedBills(
 
   if (wanted.length === 0) { done("nothing to backfill"); return []; }
 
-  const rows: RawBill[] = [];
-  for (const ids of chunk(wanted, 20)) {
-    rows.push(...(await fetchAll<RawBill>("KNS_Bill", { filter: orIn("BillID", ids) })));
-  }
+  const rows = await fetchByIds<RawBill>("KNS_Bill", "BillID", wanted, { label: "backfill bills" });
 
   const knownCommittees = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
   const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
@@ -471,10 +471,7 @@ async function writeSessionItems(items: RawCmtSessionItem[], sessionIds: number[
 
 async function ingestSessionDocuments(sessionIds: number[]) {
   step("KNS_DocumentCommitteeSession — protocol files");
-  const rows: RawSessionDocument[] = [];
-  for (const ids of chunk(sessionIds, 20)) {
-    rows.push(...(await fetchAll<RawSessionDocument>("KNS_DocumentCommitteeSession", { filter: orIn("CommitteeSessionID", ids) })));
-  }
+  const rows = await fetchByIds<RawSessionDocument>("KNS_DocumentCommitteeSession", "CommitteeSessionID", sessionIds, { label: "protocols" });
   const knownSessions = new Set(sessionIds);
   const usable = rows.filter((r) => knownSessions.has(r.CommitteeSessionID));
 
@@ -504,10 +501,7 @@ async function ingestSessionDocuments(sessionIds: number[]) {
  */
 async function ingestBillDocuments(billIds: number[]) {
   step("KNS_DocumentBill — bill texts and attachments");
-  const rows: RawBillDocument[] = [];
-  for (const ids of chunk(billIds, 20)) {
-    rows.push(...(await fetchAll<RawBillDocument>("KNS_DocumentBill", { filter: orIn("BillID", ids) })));
-  }
+  const rows = await fetchByIds<RawBillDocument>("KNS_DocumentBill", "BillID", billIds, { label: "bill documents" });
   const known = new Set(billIds);
   const usable = rows.filter((r) => known.has(r.BillID));
 
@@ -553,22 +547,16 @@ async function ingestPlenumSessions(): Promise<number[]> {
 
 /** Every appearance of the given bills on a plenum agenda — the reading history. */
 async function fetchPlenumReadings(billIds: number[]): Promise<RawPlmSessionItem[]> {
-  const out: RawPlmSessionItem[] = [];
-  for (const ids of chunk(billIds, 20)) {
-    out.push(...(await fetchAll<RawPlmSessionItem>("KNS_PlmSessionItem", {
-      filter: `ItemTypeID eq ${ITEM_TYPE_BILL} and (${orIn("ItemID", ids)})`,
-    })));
-  }
-  return out;
+  return fetchByIds<RawPlmSessionItem>("KNS_PlmSessionItem", "ItemID", billIds, {
+    prefix: `ItemTypeID eq ${ITEM_TYPE_BILL}`,
+    label: "readings",
+  });
 }
 
 /** Full agendas of the most recent sittings, so the plenum views have content. */
 async function fetchPlenumAgendas(sessionIds: number[]): Promise<RawPlmSessionItem[]> {
-  const out: RawPlmSessionItem[] = [];
-  for (const ids of chunk(sessionIds.slice(0, PLENUM_AGENDA_LIMIT), 20)) {
-    out.push(...(await fetchAll<RawPlmSessionItem>("KNS_PlmSessionItem", { filter: orIn("PlenumSessionID", ids) })));
-  }
-  return out;
+  const scope = PLENUM_AGENDA_LIMIT ? sessionIds.slice(0, PLENUM_AGENDA_LIMIT) : sessionIds;
+  return fetchByIds<RawPlmSessionItem>("KNS_PlmSessionItem", "PlenumSessionID", scope, { label: "plenum agendas" });
 }
 
 /** Merge item batches, keeping one row per upstream primary key. */
@@ -611,10 +599,7 @@ async function writePlenumItems(items: RawPlmSessionItem[], sessionIds: number[]
 /** Transcripts ("דברי הכנסת") for the sittings that carry ingested items. */
 async function ingestPlenumDocuments(sessionIds: number[]) {
   step("KNS_DocumentPlenumSession — plenum transcripts");
-  const rows: RawPlenumDocument[] = [];
-  for (const ids of chunk(sessionIds, 20)) {
-    rows.push(...(await fetchAll<RawPlenumDocument>("KNS_DocumentPlenumSession", { filter: orIn("PlenumSessionID", ids) })));
-  }
+  const rows = await fetchByIds<RawPlenumDocument>("KNS_DocumentPlenumSession", "PlenumSessionID", sessionIds, { label: "transcripts" });
   const known = new Set(sessionIds);
   const usable = rows.filter((r) => known.has(r.PlenumSessionID));
 
@@ -755,10 +740,7 @@ async function ingestQuestions(): Promise<number[]> {
 
 async function ingestQuestionDocuments(questionIds: number[]) {
   step("KNS_DocumentQuery — question texts and ministers' replies");
-  const rows: RawQueryDocument[] = [];
-  for (const ids of chunk(questionIds, 20)) {
-    rows.push(...(await fetchAll<RawQueryDocument>("KNS_DocumentQuery", { filter: orIn("QueryID", ids) })));
-  }
+  const rows = await fetchByIds<RawQueryDocument>("KNS_DocumentQuery", "QueryID", questionIds, { label: "question documents" });
   const known = new Set(questionIds);
   const usable = rows.filter((r) => known.has(r.QueryID));
 
@@ -779,7 +761,10 @@ async function ingestQuestionDocuments(questionIds: number[]) {
 }
 
 async function main() {
-  console.log(`Galui ETL → Knesset ${KNESSET} (${BILL_LIMIT} bills, ${SESSION_LIMIT} sessions)`);
+  const scope = BILL_LIMIT || SESSION_LIMIT || PLENUM_AGENDA_LIMIT
+    ? `LIMITED: ${BILL_LIMIT ?? "all"} bills, ${SESSION_LIMIT ?? "all"} committee sessions, ${PLENUM_AGENDA_LIMIT ?? "all"} plenum agendas`
+    : "the complete term";
+  console.log(`Galui ETL → Knesset ${KNESSET} — ${scope}`);
   console.log(`Source: https://knesset.gov.il/Odata/ParliamentInfo.svc`);
 
   await ingestStatuses();

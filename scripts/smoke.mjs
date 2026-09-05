@@ -26,7 +26,21 @@ async function check(path, fn) {
   console.log("  " + result);
   console.log("  console errors: " + (errors.length ? errors.join(" | ") : "none"));
   if (errors.length) failures.push(`${path}: ${errors.join(" | ")}`);
-  if (/bars=0|overflow=true|events=0|cards=0|sittings=0|plenumEvents=0|committeeEvents=0|billRows=0|straysInOther=[1-9]|billDocs=0|govSponsorNote=plain|blocBadges=0|groups=0|checkboxHeld=false|xTicks=0|barHeights=1|photosLoaded=0|photoLoaded=false|creditShown=0|fileLink=0|officialIdOk=false|questions rows=0|statCards=0|overdueSortDescending=false|fullNameSearch=0|memberQuestionsCard=0|questionRows=0/.test(result)) failures.push(`${path}: ${result}`);
+  // Patterns must not match a longer number: "barHeights=13" contains
+  // "barHeights=1". Each numeric check is anchored against a following digit.
+  const BAD = [
+    /\bbars=0(?!\d)/, /\boverflow=true\b/, /\bevents=0(?!\d)/, /\bcards=0(?!\d)/,
+    /\bsittings=0(?!\d)/, /\bplenumEvents=0(?!\d)/, /\bcommitteeEvents=0(?!\d)/,
+    /\bbillRows=0(?!\d)/, /\bstraysInOther=[1-9]/, /\bbillDocs=0(?!\d)/,
+    /\bgovSponsorNote=plain\b/, /\bblocBadges=0(?!\d)/, /\bgroups=0(?!\d)/,
+    /\bcheckboxHeld=false\b/, /\bxTicks=0(?!\d)/, /\bbarHeights=[01](?!\d)/,
+    /\bphotosLoaded=0(?!\d)/, /\bphotoLoaded=false\b/, /\bcreditShown=0(?!\d)/,
+    /\bfileLink=0(?!\d)/, /\bofficialIdOk=false\b/, /\brows=0(?!\d)/,
+    /\bstatCards=0(?!\d)/, /\boverdueSortDescending=false\b/,
+    /\bfullNameSearch=0(?!\d)/, /\bmemberQuestionsCard=0(?!\d)/, /\bquestionRows=0(?!\d)/,
+  ];
+  const hit = BAD.find((re) => re.test(result));
+  if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
 }
 
 await check("/members/30839", async () => {
