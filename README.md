@@ -77,6 +77,8 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_JointCommittee` | `JointCommittee` | Which committees make up a joint one |
 | `KNS_Query` | `Question` | Written questions to ministers, with both reply dates |
 | `KNS_DocumentQuery` | `QuestionDocument` | The question text and the minister's reply |
+| `KNS_PlenumVote` | `PlenumVote` | Plenum votes, with tallies counted at ingest |
+| `KNS_PlenumVoteResult` | `PlenumVoteResult` | How each member voted. **Standalone** — see below |
 | `KNS_GovMinistry` | `GovMinistry` | |
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
 
@@ -181,6 +183,13 @@ Things worth knowing, all verified against the live service:
 - **Knesset 25 spans two governments.** The 36th was still in office when the
   term opened, so its ministers appear in the position data. Only roles whose
   `GovernmentNum` matches the sitting government (37) are shown as current.
+- **Votes are deliberately not joined to anything yet.** `PlenumVote` carries
+  the sitting id and the item id, and both do match `PlenumSession` and `Bill`.
+  `PlenumVoteResult.mkId` does not match anything: it is a **third** Knesset
+  person id space, distinct from both `personId` and `siteId` — חנוך דב מלביצקי
+  is 30842, 1105 and 34368 respectively. Joining it by number would file one
+  member's voting record under another. The vote pages show the names the feed
+  writes onto each result row instead, and say so.
 - **Government bills have no MK initiators** — they are submitted by a ministry,
   so `KNS_BillInitiator` is legitimately empty for them (100% of private bills
   have sponsors; only 10% of government bills do). The bill page says so rather

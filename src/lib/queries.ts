@@ -662,3 +662,68 @@ export async function getAttendanceCoverage() {
   ]);
   return { rows, sittings, withData };
 }
+
+// ---------------------------------------------------------------------------
+// Plenum votes
+//
+// These stand alone: a vote is not yet joined to its sitting, its bill or the
+// members who cast it. `PlenumVoteResult.mkId` is a third Knesset person id
+// space — see the note on the model — so names come from the columns the feed
+// denormalises onto each result row.
+// ---------------------------------------------------------------------------
+
+export type VoteOutcome = "passed" | "failed" | "tied" | "unknown";
+
+/** Whether a vote carried, from its own tallies. Abstentions do not count. */
+export function voteOutcome(v: { forCount: number; againstCount: number; totalCount: number }): VoteOutcome {
+  if (v.totalCount === 0) return "unknown";
+  if (v.forCount > v.againstCount) return "passed";
+  if (v.forCount < v.againstCount) return "failed";
+  return "tied";
+}
+
+export async function listVotes({
+  q,
+  take = 50,
+  skip = 0,
+}: { q?: string; take?: number; skip?: number } = {}) {
+  const where = q?.trim()
+    ? { OR: [{ title: { contains: q.trim() } }, { subject: { contains: q.trim() } }] }
+    : {};
+
+  const [rows, total] = await Promise.all([
+    prisma.plenumVote.findMany({
+      where,
+      orderBy: [{ voteDateTime: "desc" }, { ordinal: "desc" }],
+      take,
+      skip,
+    }),
+    prisma.plenumVote.count({ where }),
+  ]);
+  return { rows, total };
+}
+
+export async function getVoteStats() {
+  const [total, earliest, latest, agg] = await Promise.all([
+    prisma.plenumVote.count(),
+    prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "asc" }, select: { voteDateTime: true } }),
+    prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "desc" }, select: { voteDateTime: true } }),
+    prisma.plenumVote.aggregate({ _sum: { totalCount: true }, _avg: { totalCount: true } }),
+  ]);
+  return {
+    total,
+    earliest: earliest?.voteDateTime ?? null,
+    latest: latest?.voteDateTime ?? null,
+    ballots: agg._sum.totalCount ?? 0,
+    avgTurnout: Math.round(agg._avg.totalCount ?? 0),
+  };
+}
+
+export async function getVote(voteId: number) {
+  return prisma.plenumVote.findUnique({
+    where: { voteId },
+    include: {
+      results: { orderBy: [{ resultCode: "asc" }, { lastName: "asc" }] },
+    },
+  });
+}

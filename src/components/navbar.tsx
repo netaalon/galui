@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Gavel, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users } from "lucide-react";
+import { FileText, Gavel, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users, Vote } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
@@ -13,6 +13,7 @@ const links = [
   { href: "/bills", label: "הצעות חוק", icon: FileText },
   { href: "/plenum", label: "מליאה", icon: Speech },
   { href: "/committees", label: "ועדות", icon: Gavel },
+  { href: "/votes", label: "הצבעות", icon: Vote },
   { href: "/questions", label: "שאילתות", icon: MessageCircleQuestion },
   { href: "/members", label: "חברי כנסת", icon: Users },
 ] as const;

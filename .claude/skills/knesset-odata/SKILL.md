@@ -135,6 +135,13 @@ renamed every primary key to `Id` and fixed two of the three key defects below.
 - `KNS_PlmSessionItem` — v2's key was `plmPlenumSessionID`, which despite the
   name identified the *item*. In v4 it is `Id`, and `PlenumSessionID` is the
   sitting.
+- **`KNS_PlenumVote` — `Id` is declared as the key and is not unique.** One
+  term serves 7,557 rows holding 7,536 distinct votes: nine ids repeat, one of
+  them four times, and `?$filter=Id eq 44998` returns four identical rows on its
+  own. So v4 has not retired this defect class, only the two instances above.
+  **Do not read a row count as an entity count**, and when comparing a drain
+  against `@odata.count`, compare rows — comparing distinct ids reports phantom
+  missing rows.
 - `KNS_BillSplit` and `KNS_BillUnion` — declared keys verified unique.
 
 Only the *own* key moved. Foreign keys kept their names, so `KNS_BillInitiator`
@@ -262,6 +269,41 @@ table-by-table diff of the same term ingested from each feed.
   lost their milliseconds). Cosmetic, but it means a strict equality test
   against a v2-built row will fail.
 
+## Votes
+
+`KNS_PlenumVote` (36,181 rows, 7,557 in Knesset 25) and `KNS_PlenumVoteResult`
+(1,953,709 rows, 526,483 in the term). Both are **deterministic** across
+repeated calls, unlike `KNS_PlmSessionItem`.
+
+- **`MkId` is a third person id space.** Not `Person.personId`, not
+  `Person.siteId`: חנוך דב מלביצקי is 30842, 1105 and 34368 in the three.
+  Joining it by number files one member's votes under another, silently. The
+  feed denormalises `FirstName`/`LastName` onto every result row, which is what
+  the UI uses until the mapping is established. `SessionID` and `ItemID`, by
+  contrast, *were* checked and do match `PlenumSession` and `Bill`.
+- **Scope votes by `SessionID`, not by date.** The table has no `KnessetNum`;
+  matching against the sittings already ingested returns exactly the same 7,557
+  votes as `VoteDateTime ge 2022-11-15` and needs no hard-coded term start.
+- **85 votes have no results at all**, and that is the feed's own answer, not a
+  gap: `VoteID eq 39381` returns zero result rows upstream. Expect a tally of
+  nothing for a small tail of votes.
+- **85 votes have no results at all**, and that is the feed's own answer rather
+  than a gap: `VoteID eq 39381` returns zero result rows upstream. Expect an
+  empty tally for a small tail of votes.
+- **A vote has a row only for members who voted.** There is no "did not vote"
+  row, so a turnout is 60–120 rather than a constant 120. Never render a tally
+  as a fraction of 120.
+- `ResultCode`: 7 בעד (268,993) · 8 נגד (252,309) · 9 נמנע (965) · 6 נוכח
+  (4,216). `נוכח` is not an abstention; the feed records both separately.
+- **`$apply` is not supported** (HTTP 473), so tallies cannot be aggregated
+  server-side. They are counted at ingest and stored on the vote.
+- **Budget an hour or two.** 526k rows is ~5,300 requests, and the service has
+  been serving them at well under one page per second. Use `forEachByIds()` so
+  rows land as they arrive: the first attempt used `fetchByIds()`, which returns
+  only once everything is in memory, so the table read 0 for the whole run and a
+  late failure would have discarded all of it. The stage skips votes that
+  already hold results, so an interrupted run resumes.
+
 ## Referential integrity is not guaranteed by arrival order
 
 `KNS_Committee` rows reference a parent committee in the same table, and the
@@ -338,12 +380,10 @@ Porting notes, for reading old code and issues written against v2:
 - `KNS_Bill` gains `TypeID` / `TypeDesc` and `PublicationSeriesFirstCallDesc`.
 - Question documents leave OData entirely — see its section above.
 
+Ingested: `KNS_PlenumVote` and `KNS_PlenumVoteResult` — see the section below.
+
 Not yet ingested — each is an open issue, not an oversight:
 
-- `KNS_PlenumVote` (36,183) and `KNS_PlenumVoteResult` (1,953,709) — plenum votes
-  with per-MK results, current, keyed on a numeric `MkId`, so no name matching
-  is needed. This is a far better source than parsing protocols or scraping
-  `WebSiteApi/knessetapi/Votes`.
 - `V_Lobbyists`, `V_LobbyistsClients`.
 - `KNS_SecondaryLaw` (60,297), `KNS_IsraelLaw` and the law-correction tables.
 - `KNS_BillSplit` / `KNS_BillUnion` — why a bill's page can look empty (#18).

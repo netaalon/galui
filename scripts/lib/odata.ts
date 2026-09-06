@@ -257,6 +257,62 @@ export const CONCURRENCY = 5;
  * parallel. This is the workhorse for the child tables, none of which carry a
  * KnessetNum to filter on directly.
  */
+/**
+ * Like `fetchByIds`, but hands each batch to a callback instead of collecting
+ * everything first.
+ *
+ * Use this whenever the result set is large. `fetchByIds` holds every row in
+ * memory and returns only once the last one has arrived, so a caller that
+ * writes afterwards has written nothing at all until the whole fetch finishes —
+ * half a million vote results took over an hour during which the table stayed
+ * empty, and a failure at any point would have thrown the lot away.
+ */
+export async function forEachByIds<T>(
+  entity: string,
+  field: string,
+  ids: Array<number | string>,
+  onBatch: (rows: T[]) => Promise<void>,
+  opts: { prefix?: string; label?: string; maxIds?: number } = {},
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const prefix = opts.prefix ? `${opts.prefix} and ` : "";
+  // `maxIds` trades requests-per-batch for how often work becomes durable. The
+  // URL budget allows ~180 ids, but a batch that wide can be a hundred pages of
+  // paging before anything is written; capping it makes progress visible and
+  // means a resumed run repeats less.
+  const batches = chunkForFilter(ids, field, encodeURIComponent(prefix).length)
+    .flatMap((b) => (opts.maxIds ? chunk(b, opts.maxIds) : [b]));
+  let rows = 0;
+
+  // Batches are written as they land, so they must not overlap in flight: the
+  // callback is serialised while the fetches stay parallel.
+  let writing: Promise<void> = Promise.resolve();
+  await mapLimit(
+    batches,
+    CONCURRENCY,
+    async (batch) => {
+      // `$orderby` so the pages tile a stable order rather than trusting the
+      // service's default to hold still for the length of a drain. Defensive:
+      // every drain measured here tiled correctly without it too.
+      //
+      // Do not read a row count as a count of entities. `KNS_PlenumVote` serves
+      // 7,557 rows for one term holding 7,536 distinct ids — nine ids repeat,
+      // one of them four times — so a caller that needs entities must
+      // deduplicate on the key, and one that compares against `@odata.count`
+      // must compare rows, not distinct ids.
+      const got = await fetchAll<T>(entity, { filter: `${prefix}${inList(field, batch)}`, orderby: "Id" });
+      rows += got.length;
+      writing = writing.then(() => onBatch(got));
+      await writing;
+    },
+    (done, total) => {
+      if (opts.label) process.stdout.write(`\r  … ${opts.label} ${done}/${total} batches, ${rows} rows`);
+    },
+  );
+  if (opts.label) process.stdout.write("\r".padEnd(70) + "\r");
+  return rows;
+}
+
 export async function fetchByIds<T>(
   entity: string,
   /**
@@ -278,7 +334,7 @@ export async function fetchByIds<T>(
     batches,
     CONCURRENCY,
     async (batch) => {
-      const rows = await fetchAll<T>(entity, { filter: `${prefix}${inList(field, batch)}` });
+      const rows = await fetchAll<T>(entity, { filter: `${prefix}${inList(field, batch)}`, orderby: "Id" });
       out.push(...rows);
     },
     (done, total) => {

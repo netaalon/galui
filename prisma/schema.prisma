@@ -546,3 +546,68 @@ model QuestionDocument {
 
   @@index([questionId])
 }
+
+/// KNS_PlenumVote — a single vote taken in the plenum.
+///
+/// Standalone on purpose: nothing here is a foreign key yet. `plenumSessionId`
+/// and `itemId` were checked and do line up with `PlenumSession.plenumSessionId`
+/// and `Bill.billId`, so wiring them up later is straightforward. `mkId` on the
+/// results is a different matter — see the note there.
+///
+/// Upstream `Id` is declared as the key but is not unique: the term serves 7,557
+/// rows holding 7,536 distinct votes, nine ids repeating with identical content
+/// (`Id eq 44998` returns four rows on its own). Upserting on it is correct, as
+/// the duplicates carry the same data, but never read a row count as a vote count.
+model PlenumVote {
+  voteId          Int       @id
+  voteDateTime    DateTime?
+  /// Upstream SessionID. Matches PlenumSession, but deliberately not a relation yet.
+  plenumSessionId Int?
+  /// Upstream ItemID. Matches Bill for bill votes, but not every item is a bill.
+  itemId          Int?
+  ordinal         Int?
+  methodDesc      String?
+  statusDesc      String?
+  title           String?
+  subject         String?
+  isNoConfidence  Boolean   @default(false)
+
+  /// Tallies counted at ingest. The results table holds ~526k rows for one
+  /// term, and re-aggregating it on every page render would be silly.
+  forCount     Int @default(0)
+  againstCount Int @default(0)
+  abstainCount Int @default(0)
+  presentCount Int @default(0)
+  totalCount   Int @default(0)
+
+  lastUpdatedDate DateTime?
+
+  results PlenumVoteResult[]
+
+  @@index([voteDateTime])
+  @@index([plenumSessionId])
+  @@index([itemId])
+}
+
+/// KNS_PlenumVoteResult — how one member voted in one vote.
+///
+/// **`mkId` is a third Knesset person id space.** It is not `Person.personId`
+/// and not `Person.siteId`: חנוך דב מלביצקי is personId 30842, siteId 1105 and
+/// mkId 34368. Joining it to a person by number would put one member's voting
+/// record on another's page without erroring. The feed denormalises the name
+/// onto every row, which is what the UI uses until the mapping is established.
+model PlenumVoteResult {
+  id         Int     @id
+  voteId     Int
+  mkId       Int
+  resultCode Int?
+  /// בעד (7) · נגד (8) · נמנע (9) · נוכח (6)
+  resultDesc String?
+  firstName  String?
+  lastName   String?
+
+  vote PlenumVote @relation(fields: [voteId], references: [voteId], onDelete: Cascade)
+
+  @@index([voteId])
+  @@index([mkId])
+}

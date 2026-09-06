@@ -79,13 +79,20 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
 - `CommitteeParticipant` — attendance parsed from protocol headers, since the
   API publishes no rosters.
 - `SessionDocument.id` etc. — synthetic `"<documentId>:<applicationId>"`, because
-  the upstream document ids are not unique per format.
+  the upstream document ids were not unique per format under the v2 feed.
+- `PlenumVote` / `PlenumVoteResult` — **standalone by design.** No foreign keys
+  to `PlenumSession`, `Bill` or `Person`, even though the sitting and item ids
+  do match. `PlenumVoteResult.mkId` is a third Knesset person id space and
+  resolving it is unfinished work; the vote pages show the names the feed
+  denormalises onto each result row, and say why they are not links. Tallies are
+  stored on the vote because the results table holds ~526k rows for one term.
 
 ## Commands
 
 ```bash
 npm run dev                     # Next dev server
-npm run ingest                  # full OData mirror, ~8 min, ~35 MB
+npm run ingest                  # full OData mirror. ~10 min, plus 1-2 hours
+                                # for vote results (resumable; see the skill)
 npm run photos                  # MK headshots from Wikimedia Commons
 npm run attendance              # protocol attendance (extract + load), ~20 min
 npm run typecheck && npm run lint && npm run build

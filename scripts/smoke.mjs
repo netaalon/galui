@@ -41,6 +41,8 @@ async function check(path, fn) {
     /\bcommittee cards=0(?!\d)/, /\bmembershipRows=0(?!\d)/, /\bcaveatShown=false\b/,
     /\bcapped=false\b/, /\bchairCounts=false\b/, /\btypeGroups=0(?!\d)/, /\bcommitteeBars=0(?!\d)/,
     /\bcommitteeBills=0(?!\d)/, /\bmemberCommittees=0(?!\d)/,
+    /\bvoteRows=0(?!\d)/, /\btallied=0(?!\d)/, /\bvoterNames=0(?!\d)/,
+    /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -211,6 +213,31 @@ await check("/members", async () => {
   const cards = await page.locator('a[href^="/members/"]').count();
   const checked = await page.getByRole("checkbox").isChecked();
   return `sorted groups=${groups} servingCards=${cards} checkboxHeld=${checked}`;
+});
+
+// Votes: the list must show tallies, and a vote page must name the members who
+// voted rather than falling back to a bare id. `idFallbacks` guards the case
+// where the feed's denormalised names are missing — the only way the UI can
+// identify a voter, since mkId is a person id space we do not resolve.
+await check("/votes", async () => {
+  const rows = await page.locator('a[href^="/votes/"]').count();
+  const tallied = await page.locator("text=שהצביעו").count();
+  return `voteRows=${rows} tallied=${tallied}`;
+});
+
+await check("/votes?q=" + encodeURIComponent("תקציב"), async () => {
+  const rows = await page.locator('a[href^="/votes/"]').count();
+  return `search voteRows=${rows}`;
+});
+
+// Follow the first vote through to its own page.
+await check("/votes", async () => {
+  await page.locator('a[href^="/votes/"]').first().click();
+  await page.waitForURL(/\/votes\/\d+/, { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
+  const names = await page.locator("li.break-words").count();
+  const fallbacks = await page.locator("li.break-words", { hasText: /^מזהה \d+$/ }).count();
+  return `vote page voterNames=${names} idFallbacks=${fallbacks}`;
 });
 
 // Horizontal overflow check on mobile width

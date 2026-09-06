@@ -12,7 +12,7 @@ import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { blocFor, unmappedFactions } from "../src/lib/factions.js";
-import { ODATA_BASE, ODATA_V2_BASE, chunk, count, fetchAll, fetchByIds, parseBool, parseDate } from "./lib/odata.js";
+import { ODATA_BASE, ODATA_V2_BASE, chunk, count, fetchAll, fetchByIds, forEachByIds, parseBool, parseDate } from "./lib/odata.js";
 
 // ---------------------------------------------------------------------------
 // OData row shapes (only the fields we persist)
@@ -33,6 +33,8 @@ interface RawCmtSessionItem { Id: number; ItemID: number | null; ItemTypeID: num
 interface RawSessionDocument { Id: number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawItemType { Id: number; Desc: string | null }
 interface RawBroadcast { Id: number; BroadcastId: number | null; BroadcastUrl: string | null }
+interface RawPlenumVote { Id: number; VoteDateTime: string | null; SessionID: number | null; ItemID: number | null; Ordinal: number | null; VoteMethodDesc: string | null; VoteStatusDesc: string | null; VoteTitle: string | null; VoteSubject: string | null; IsNoConfidenceInGov: boolean | null; LastUpdatedDate: string | null }
+interface RawPlenumVoteResult { Id: number; VoteID: number; MkId: number; ResultCode: number | null; ResultDesc: string | null; FirstName: string | null; LastName: string | null }
 interface RawJointCommittee { Id: number; CommitteeID: number; ParticipantCommitteeID: number; LastUpdatedDate: string | null }
 interface RawGovMinistry { Id: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
 interface RawQuery { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
@@ -74,6 +76,9 @@ const KNESSET = arg("knesset", 25)!;
 const BILL_LIMIT = arg("bills", undefined);
 const SESSION_LIMIT = arg("sessions", undefined);
 const PLENUM_AGENDA_LIMIT = arg("plenum", undefined);
+
+/** Re-fetch vote results for votes that already have them. */
+const REFETCH_VOTE_RESULTS = process.argv.includes("--revotes");
 
 /** KNS_Position ids that mean "this person is a Knesset Member". */
 const POSITION_MK = [43, 61]; // חבר הכנסת / חברת הכנסת
@@ -1013,6 +1018,140 @@ async function ingestQuestionDocuments(questionIds: number[]) {
   done(`${n} documents`);
 }
 
+
+// ---------------------------------------------------------------------------
+// Votes
+// ---------------------------------------------------------------------------
+
+/** ResultCode values, from KNS_PlenumVoteResult across the whole term. */
+const VOTE_FOR = 7;      // בעד
+const VOTE_AGAINST = 8;  // נגד
+const VOTE_ABSTAIN = 9;  // נמנע
+const VOTE_PRESENT = 6;  // נוכח
+
+/** Total votes the service reports for a set of sittings, for a completeness check. */
+async function countVotesUpstream(sessionIds: number[]): Promise<number> {
+  let total = 0;
+  for (const batch of chunk(sessionIds, 150)) {
+    total += await count("KNS_PlenumVote", `SessionID in (${batch.join(",")})`);
+  }
+  return total;
+}
+
+/**
+ * KNS_PlenumVote — every vote taken in the sittings we hold.
+ *
+ * Scoped by SessionID rather than by date: the table has no KnessetNum, and
+ * matching against the sittings already ingested gives exactly the same 7,557
+ * votes a `VoteDateTime ge 2022-11-15` filter does, without hard-coding when
+ * the term began.
+ */
+async function ingestPlenumVotes(sessionIds: number[]): Promise<number[]> {
+  step("KNS_PlenumVote — plenum votes");
+  const rows = await fetchByIds<RawPlenumVote>("KNS_PlenumVote", "SessionID", sessionIds, { label: "votes" });
+  const n = await writeBatched(rows, (r) => {
+    const data = {
+      voteId: r.Id, voteDateTime: parseDate(r.VoteDateTime),
+      plenumSessionId: r.SessionID, itemId: r.ItemID, ordinal: r.Ordinal,
+      methodDesc: r.VoteMethodDesc, statusDesc: r.VoteStatusDesc,
+      title: r.VoteTitle, subject: r.VoteSubject,
+      isNoConfidence: parseBool(r.IsNoConfidenceInGov),
+      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.plenumVote.upsert({ where: { voteId: r.Id }, create: data, update: data });
+  });
+  // Completeness is rows received against rows the service says it has — NOT
+  // distinct ids against that count. `Id` is not unique here: the term serves
+  // 7,557 rows holding 7,536 distinct votes, nine ids repeating and one of them
+  // four times, which `Id eq 44998` reproduces on its own. Comparing distinct
+  // ids to the count would report 21 phantom missing votes on every run.
+  const distinct = new Set(rows.map((r) => r.Id)).size;
+  const upstream = await countVotesUpstream(sessionIds);
+  if (rows.length < upstream) {
+    console.warn(`  ! received ${rows.length} vote rows but the service reports ${upstream} — ${upstream - rows.length} missing`);
+  }
+  const repeats = rows.length - distinct;
+  await record("KNS_PlenumVote", rows.length, n, true, `${distinct} distinct votes in ${upstream} rows`);
+  done(`${n} votes${repeats ? ` (${repeats} rows the feed serves more than once)` : ""}`);
+  // Deduplicated: a drain can repeat a row, and the results stage batches on
+  // whatever comes back from here.
+  return [...new Set(rows.map((r) => r.Id))];
+}
+
+/**
+ * KNS_PlenumVoteResult — how each member voted, then the tallies.
+ *
+ * Half a million rows for one term, which at the rates this service actually
+ * serves takes upwards of an hour. That shape dictates the design:
+ *
+ * - **Rows are written batch by batch**, not collected and written at the end.
+ *   The first version accumulated everything, so the table stayed empty for the
+ *   whole run and a failure at minute 100 would have discarded all of it.
+ * - **It resumes.** Votes that already hold results are skipped, so an
+ *   interrupted run continues rather than starting over.
+ * - **Tallies are computed in SQL afterwards**, over whatever is in the table.
+ *   Counting in memory would only be correct for the votes this run fetched.
+ *
+ * Pass `--revotes` to re-fetch results for votes that already have them.
+ */
+async function ingestPlenumVoteResults(voteIds: number[]) {
+  step("KNS_PlenumVoteResult — how each member voted");
+
+  let wanted = voteIds;
+  if (!REFETCH_VOTE_RESULTS) {
+    const have = new Set(
+      (await prisma.plenumVoteResult.findMany({ select: { voteId: true }, distinct: ["voteId"] })).map((r) => r.voteId),
+    );
+    wanted = voteIds.filter((id) => !have.has(id));
+    if (have.size) console.log(`  ${have.size} votes already hold results; fetching the remaining ${wanted.length}`);
+  }
+
+  const known = new Set(voteIds);
+  let written = 0;
+  const fetched = await forEachByIds<RawPlenumVoteResult>(
+    "KNS_PlenumVoteResult",
+    "VoteID",
+    wanted,
+    async (rows) => {
+      const usable = rows.filter((r) => known.has(r.VoteID));
+      // Bulk INSERT rather than a Prisma upsert per row. Half a million upserts
+      // wrapped in transactions exhausted a 4 GB heap two thirds of the way
+      // through a run: each one builds a query object, and at this volume the
+      // churn is the bottleneck in both memory and time. One statement per 200
+      // rows keeps the process flat, and `OR REPLACE` keeps it idempotent.
+      for (const part of chunk(usable, 200)) {
+        const values = part.map(() => "(?,?,?,?,?,?,?)").join(",");
+        await prisma.$executeRawUnsafe(
+          `INSERT OR REPLACE INTO "PlenumVoteResult"
+             ("id","voteId","mkId","resultCode","resultDesc","firstName","lastName")
+           VALUES ${values}`,
+          ...part.flatMap((r) => [r.Id, r.VoteID, r.MkId, r.ResultCode, r.ResultDesc, r.FirstName, r.LastName]),
+        );
+        written += part.length;
+      }
+    },
+    // 25 votes a batch is roughly 1,700 rows: frequent enough that the table
+    // fills visibly and an interrupted run resumes near where it stopped.
+    { label: "vote results", maxIds: 25 },
+  );
+  await record("KNS_PlenumVoteResult", fetched, written, true);
+  done(`${written} vote results`);
+
+  step("Counting each vote's tallies");
+  // One pass over the results table, so the numbers are right whether this run
+  // fetched everything or resumed part-way through.
+  await prisma.$executeRaw`
+    UPDATE "PlenumVote" SET
+      "forCount"     = (SELECT COUNT(*) FROM "PlenumVoteResult" r WHERE r."voteId" = "PlenumVote"."voteId" AND r."resultCode" = ${VOTE_FOR}),
+      "againstCount" = (SELECT COUNT(*) FROM "PlenumVoteResult" r WHERE r."voteId" = "PlenumVote"."voteId" AND r."resultCode" = ${VOTE_AGAINST}),
+      "abstainCount" = (SELECT COUNT(*) FROM "PlenumVoteResult" r WHERE r."voteId" = "PlenumVote"."voteId" AND r."resultCode" = ${VOTE_ABSTAIN}),
+      "presentCount" = (SELECT COUNT(*) FROM "PlenumVoteResult" r WHERE r."voteId" = "PlenumVote"."voteId" AND r."resultCode" = ${VOTE_PRESENT}),
+      "totalCount"   = (SELECT COUNT(*) FROM "PlenumVoteResult" r WHERE r."voteId" = "PlenumVote"."voteId")
+  `;
+  const withResults = await prisma.plenumVote.count({ where: { totalCount: { gt: 0 } } });
+  done(`${withResults} votes tallied`);
+}
+
 async function main() {
   const scope = BILL_LIMIT || SESSION_LIMIT || PLENUM_AGENDA_LIMIT
     ? `LIMITED: ${BILL_LIMIT ?? "all"} bills, ${SESSION_LIMIT ?? "all"} committee sessions, ${PLENUM_AGENDA_LIMIT ?? "all"} plenum agendas`
@@ -1081,6 +1220,10 @@ async function main() {
   // Needs every junction row written first.
   await deriveBillFirstStep();
 
+  // Votes hang off the sittings, and stand alone otherwise.
+  const voteIds = await ingestPlenumVotes(plenumSessionIds);
+  await ingestPlenumVoteResults(voteIds);
+
   await ingestGovMinistries();
   const questionIds = await ingestQuestions();
   await ingestQuestionDocuments(questionIds);
@@ -1105,6 +1248,8 @@ async function main() {
     ministries: await prisma.govMinistry.count(),
     questions: await prisma.question.count(),
     questionDocs: await prisma.questionDocument.count(),
+    votes: await prisma.plenumVote.count(),
+    voteResults: await prisma.plenumVoteResult.count(),
   };
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log(`\nDone in ${stamp()}.`);
