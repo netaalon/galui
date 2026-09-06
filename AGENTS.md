@@ -24,9 +24,12 @@ to establish:
 
 Three things that catch people out immediately:
 
-- **The API lies about its own shape.** Declared entity keys are sometimes not
-  unique, `KNS_MkIndividual` does not exist, and `LastUpdatedDate` is not when
-  anything happened. Check against live data before designing.
+- **The API lies about its own shape.** `KNS_MkIndividual` does not exist,
+  single-row key access 404s on most entity sets while the rows sit there under
+  `$filter`, and `LastUpdatedDate` is not when anything happened. Check against
+  live data before designing. Ingestion reads the **v4** feed
+  (`/OdataV4/ParliamentInfo`); notes written against the deprecated v2 service
+  use different key names.
 - **Never guess an identity.** Two Knesset id spaces overlap, and a wrong match
   puts a real person's record on someone else's page without erroring.
 - **Verify by measuring.** Sample across the real distribution and report a

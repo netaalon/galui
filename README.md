@@ -5,11 +5,17 @@ committee and plenum, the members who sponsor them, and the sittings where they
 get discussed.
 
 This is the MVP. It covers the **25th Knesset** (the current term) and reads
-**exclusively** from the official Knesset OData v3 service:
+**exclusively** from the official Knesset OData v4 service:
 
 ```
-https://knesset.gov.il/Odata/ParliamentInfo.svc/
+https://knesset.gov.il/OdataV4/ParliamentInfo/
 ```
+
+> The older `/Odata/ParliamentInfo.svc` (v2/v3) still answers, and most code on
+> the internet is written against it, but the Knesset's developer manual says it
+> is on the way out and v4 publishes ten entity sets it never had — votes among
+> them. One table, `KNS_MkSiteCode`, is still read from v2 because v4's copy
+> carries person ids that resolve to nobody; see the `knesset-odata` skill.
 
 > `oknesset.org` and `hasadna/knesset-data-pipelines` are **not** used anywhere in
 > this project — their data is years stale. There are also no HTML scrapers; the
@@ -75,10 +81,10 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
 
 A full run mirrors: 7,587 bills · 17,332 sponsorships · 10,895 committee
-sittings · 13,837 agenda items · 418 plenum sittings · 13,431 plenum items ·
-1,580 written questions · 69,419 documents. Adding protocol attendance
+sittings · 13,837 agenda items · 418 plenum sittings · 14,752 plenum items ·
+1,580 written questions · 52,279 documents. Adding protocol attendance
 (`npm run attendance`) contributes a further 52,061 rows. The SQLite file lands
-around 45 MB.
+around 50 MB.
 
 Things worth knowing, all verified against the live service:
 
@@ -89,11 +95,17 @@ Things worth knowing, all verified against the live service:
   `factionName` and `roleDesc`.
 - **The service caps every response at 100 rows**, whatever `$top` says. All
   paging goes through `$skip` in steps of 100.
+- **Filters are limited to 100 expression nodes**, so a long `Id eq a or Id eq b`
+  chain fails at ~25 ids. Child tables are fetched with `Id in (…)` instead,
+  which is a single node and lets ~180 ids ride in one request — the only other
+  ceiling being an undocumented ~2,100-character URL limit that 404s silently.
 - **A session item is a bill** when `ItemTypeID = 2`; then `ItemID` is a
   `BillID`. This junction is what the bill timeline is built from.
-- **Dates carry no timezone.** They are stored as UTC standing in for the
-  Israeli wall-clock time the Knesset published, and rendered in UTC, so the
-  displayed time matches the source on any machine.
+- **Dates are Israeli wall-clock times stored as UTC.** v4 tags them with
+  Israel's offset (`+03:00`); the ETL drops it and keeps the published wall
+  clock, which is then rendered in UTC — so a sitting the Knesset published as
+  10:00 shows as 10:00 on any machine, and the month buckets behind the activity
+  charts fall on Israeli days.
 - After ingesting sessions the ETL **backfills every bill their agendas
   reference**, committee and plenum alike, and then fetches the reading history
   of the bills that backfill brought in. Without it most timelines would be
@@ -106,8 +118,9 @@ Things worth knowing, all verified against the live service:
   שלישית", and so on. It resolves against `KNS_Status`, and it is what turns a
   list of sittings into a readable reading history. Its `IsDiscussion` flag
   (an int, not a bool) separates an actual debate from merely being tabled.
-- The upstream primary key of `KNS_PlmSessionItem` is **`plmPlenumSessionID`**,
-  which despite the name identifies the *item*; `PlenumSessionID` is the sitting.
+- In `KNS_PlmSessionItem`, `Id` identifies the *item* and `PlenumSessionID` the
+  sitting. (Under v2 that key was named `plmPlenumSessionID`, which read as the
+  opposite of what it was; v4 renamed every primary key to `Id`.)
 - Plenum sittings are ingested **in full** (only ~418 per term), but agendas are
   pulled only for the most recent `--plenum` sittings, plus every sitting an
   ingested bill appears in.

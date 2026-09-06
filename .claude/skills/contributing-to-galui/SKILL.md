@@ -12,11 +12,17 @@ something quietly produced plausible-looking wrong output.
 ## Check the data before you design
 
 Nearly every assumption about this API has turned out wrong at least once:
-`KNS_MkIndividual` does not exist, document ids are not unique, `LastUpdatedDate`
-is not when anything happened, committee membership is published nowhere. Probe
-the live service with `curl` and look at real rows before writing a schema, a
-query or an estimate. Read the `knesset-odata` skill first — it records what has
-already been paid for.
+`KNS_MkIndividual` does not exist, `LastUpdatedDate` is not when anything
+happened, and document ids were not unique until the feed we now read fixed
+them. Probe the live service with `curl` and look at real rows before writing a
+schema, a query or an estimate. Read the `knesset-odata` skill first — it records
+what has already been paid for.
+
+Scope a negative finding to what you actually tested. "Committee membership is
+not published" was true of every row in the v2 feed and got written into the UI
+as a fact about the Knesset's API; it is published in v4, one path segment away,
+and the site told users otherwise for a day. Say which feed, which entity and
+which query came back empty.
 
 If a conclusion rests on a filter returning nothing, **verify the filter works**.
 `CommitteeID ne null` returning zero rows and the field genuinely being empty

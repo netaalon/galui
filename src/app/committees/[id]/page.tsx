@@ -16,6 +16,7 @@ import {
   getCommitteeSessions,
 } from "@/lib/queries";
 import { fullName } from "@/lib/format";
+import { sourceRecordUrl } from "@/lib/odata-link";
 
 export const dynamic = "force-dynamic";
 
@@ -282,7 +283,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
             </CardHeader>
             <CardContent>
               <a
-                href={`https://knesset.gov.il/Odata/ParliamentInfo.svc/KNS_Committee(${committee.committeeId})?$format=json`}
+                href={sourceRecordUrl("KNS_Committee", committee.committeeId)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"

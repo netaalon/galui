@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { countLabel, formatDateTime, formatTime, truncate } from "@/lib/format";
 import { splitPlenumDocs } from "@/lib/plenum-docs";
 import { getPlenumSession } from "@/lib/queries";
+import { sourceRecordUrl } from "@/lib/odata-link";
 
 export const dynamic = "force-dynamic";
 
@@ -179,7 +180,7 @@ export default async function PlenumSessionPage({ params }: { params: Promise<{ 
             </CardHeader>
             <CardContent className="text-sm">
               <a
-                href={`https://knesset.gov.il/Odata/ParliamentInfo.svc/KNS_PlenumSession(${session.plenumSessionId})?$format=json`}
+                href={sourceRecordUrl("KNS_PlenumSession", session.plenumSessionId)}
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"

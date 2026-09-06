@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+import { ODATA_SERVICE } from "@/lib/odata-link";
 
 // The entire dataset is Hebrew, so the interface is Hebrew and right-to-left.
 const heebo = Heebo({
@@ -35,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <p>
                 הנתונים נשאבים ישירות מ־
                 <a
-                  href="https://knesset.gov.il/Odata/ParliamentInfo.svc/"
+                  href={ODATA_SERVICE}
                   target="_blank"
                   rel="noreferrer"
                   className="underline underline-offset-4 hover:text-foreground"

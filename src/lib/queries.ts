@@ -145,7 +145,7 @@ export async function getBill(billId: number) {
       status: true,
       committee: true,
       // groupTypeId runs in legislative order, so this reads as progression.
-      documents: { orderBy: [{ groupTypeId: "asc" }, { documentBillId: "asc" }] },
+      documents: { orderBy: [{ groupTypeId: "asc" }, { filePath: "asc" }] },
       initiators: {
         orderBy: [{ isInitiator: "desc" }, { ordinal: "asc" }],
         include: { person: true },

@@ -1,5 +1,5 @@
 /**
- * Galui ETL — pulls the 25th Knesset from the official Knesset OData v3 service
+ * Galui ETL — pulls the 25th Knesset from the official Knesset OData v4 service
  * into the local SQLite database.
  *
  *   npx tsx scripts/fetch-odata.ts
@@ -12,33 +12,38 @@ import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { blocFor, unmappedFactions } from "../src/lib/factions.js";
-import { chunk, count, fetchAll, fetchByIds, parseBool, parseDate } from "./lib/odata.js";
+import { ODATA_BASE, ODATA_V2_BASE, chunk, count, fetchAll, fetchByIds, parseBool, parseDate } from "./lib/odata.js";
 
 // ---------------------------------------------------------------------------
 // OData row shapes (only the fields we persist)
 // ---------------------------------------------------------------------------
 
-interface RawStatus { StatusID: number; Desc: string | null; TypeDesc: string | null; IsActive: boolean | null }
-interface RawFaction { FactionID: number; Name: string | null; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
-interface RawCommittee { CommitteeID: number; Name: string | null; CategoryDesc: string | null; KnessetNum: number | null; CommitteeTypeDesc: string | null; ParentCommitteeID: number | null; CommitteeParentName: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
-interface RawPerson { PersonID: number; FirstName: string | null; LastName: string | null; GenderDesc: string | null; Email: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+interface RawStatus { Id: number; Desc: string | null; TypeDesc: string | null; IsActive: boolean | null }
+interface RawFaction { Id: number; Name: string | null; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+interface RawCommittee { Id: number; Name: string | null; CategoryDesc: string | null; KnessetNum: number | null; CommitteeTypeDesc: string | null; ParentCommitteeID: number | null; CommitteeParentName: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+interface RawPerson { Id: number; FirstName: string | null; LastName: string | null; GenderDesc: string | null; Email: string | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+/** Read from v2, so this keeps v2's field names. See ingestPeople. */
 interface RawMkSiteCode { MKSiteCode: string; KnsID: number; SiteId: number }
-interface RawPersonToPosition { PersonToPositionID: number; PersonID: number; PositionID: number; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; FactionID: number | null; FactionName: string | null; DutyDesc: string | null; CommitteeID: number | null; CommitteeName: string | null; GovMinistryName: string | null; GovernmentNum: number | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
-interface RawPosition { PositionID: number; Description: string | null }
-interface RawBill { BillID: number; KnessetNum: number | null; Name: string | null; SubTypeID: number | null; SubTypeDesc: string | null; PrivateNumber: number | null; Number: number | null; CommitteeID: number | null; StatusID: number | null; PostponementReasonDesc: string | null; PublicationDate: string | null; SummaryLaw: string | null; PublicationSeriesDesc: string | null; IsContinuationBill: boolean | null; LastUpdatedDate: string | null }
-interface RawBillInitiator { BillInitiatorID: number; BillID: number; PersonID: number; IsInitiator: boolean | null; Ordinal: number | null; LastUpdatedDate: string | null }
-interface RawCommitteeSession { CommitteeSessionID: number; Number: number | null; KnessetNum: number | null; TypeDesc: string | null; CommitteeID: number | null; StatusDesc: string | null; Location: string | null; SessionUrl: string | null; BroadcastUrl: string | null; StartDate: string | null; FinishDate: string | null; Note: string | null; LastUpdatedDate: string | null }
-interface RawCmtSessionItem { CmtSessionItemID: number; ItemID: number | null; ItemTypeID: number | null; CommitteeSessionID: number; Ordinal: number | null; StatusID: number | null; Name: string | null; LastUpdatedDate: string | null }
-interface RawSessionDocument { DocumentCommitteeSessionID: string | number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
-interface RawItemType { ItemTypeID: number; Desc: string | null }
-interface RawJointCommittee { JointCommitteeID: string | number | null; CommitteeID: number; ParticipantCommitteeID: number; LastUpdatedDate: string | null }
-interface RawGovMinistry { GovMinistryID: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
-interface RawQuery { QueryID: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
-interface RawQueryDocument { DocumentQueryID: string | number; QueryID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
-interface RawBillDocument { DocumentBillID: string | number; BillID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
-interface RawPlenumSession { PlenumSessionID: number; Number: number | null; KnessetNum: number | null; Name: string | null; StartDate: string | null; FinishDate: string | null; IsSpecialMeeting: boolean | null; LastUpdatedDate: string | null }
-interface RawPlmSessionItem { plmPlenumSessionID: number; ItemID: number | null; PlenumSessionID: number; ItemTypeID: number | null; ItemTypeDesc: string | null; Ordinal: number | string | null; Name: string | null; StatusID: number | null; IsDiscussion: number | null; LastUpdatedDate: string | null }
-interface RawPlenumDocument { DocumentPlenumSessionID: string | number; PlenumSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
+interface RawPersonToPosition { Id: number; PersonID: number; PositionID: number; KnessetNum: number | null; StartDate: string | null; FinishDate: string | null; FactionID: number | null; FactionName: string | null; DutyDesc: string | null; CommitteeID: number | null; CommitteeName: string | null; GovMinistryName: string | null; GovernmentNum: number | null; IsCurrent: boolean | null; LastUpdatedDate: string | null }
+interface RawPosition { Id: number; Description: string | null }
+interface RawBill { Id: number; KnessetNum: number | null; Name: string | null; SubTypeID: number | null; SubTypeDesc: string | null; PrivateNumber: number | null; Number: number | null; CommitteeID: number | null; StatusID: number | null; PostponementReasonDesc: string | null; PublicationDate: string | null; SummaryLaw: string | null; PublicationSeriesDesc: string | null; IsContinuationBill: boolean | null; LastUpdatedDate: string | null }
+interface RawBillInitiator { Id: number; BillID: number; PersonID: number; IsInitiator: boolean | null; Ordinal: number | null; LastUpdatedDate: string | null }
+interface RawCommitteeSession { Id: number; Number: number | null; KnessetNum: number | null; TypeDesc: string | null; CommitteeID: number | null; StatusDesc: string | null; Location: string | null; SessionUrl: string | null; BroadcastUrl: string | null; StartDate: string | null; FinishDate: string | null; Note: string | null; LastUpdatedDate: string | null }
+interface RawCmtSessionItem { Id: number; ItemID: number | null; ItemTypeID: number | null; CommitteeSessionID: number; Ordinal: number | null; StatusID: number | null; Name: string | null; LastUpdatedDate: string | null }
+interface RawSessionDocument { Id: number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
+interface RawItemType { Id: number; Desc: string | null }
+interface RawJointCommittee { Id: number; CommitteeID: number; ParticipantCommitteeID: number; LastUpdatedDate: string | null }
+interface RawGovMinistry { Id: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
+interface RawQuery { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
+/**
+ * Lower-cased on purpose: unlike every other entity here, this one is not
+ * served through OData. See ingestQuestionDocuments.
+ */
+interface RawQueryDocument { id: number; queryID: number; groupTypeID: number | null; groupTypeDesc: string | null; applicationDesc: string | null; filePath: string | null; lastUpdatedDate: string | null }
+interface RawBillDocument { Id: number; BillID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
+interface RawPlenumSession { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; StartDate: string | null; FinishDate: string | null; IsSpecialMeeting: boolean | null; LastUpdatedDate: string | null }
+interface RawPlmSessionItem { Id: number; ItemID: number | null; PlenumSessionID: number; ItemTypeID: number | null; ItemTypeDesc: string | null; Ordinal: number | string | null; Name: string | null; StatusID: number | null; IsDiscussion: number | null; LastUpdatedDate: string | null }
+interface RawPlenumDocument { Id: number; PlenumSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 
 // ---------------------------------------------------------------------------
 // Config
@@ -93,8 +98,25 @@ function step(msg: string) { console.log(`\n[${stamp()}] ${msg}`); }
 function done(msg: string) { console.log(`  ✓ ${msg}`); }
 
 /**
- * Document ids are not unique upstream: the same document appears once per
- * published format, so the row key is the id paired with ApplicationID.
+ * Document URLs arrive with mixed separators — v4 writes bill paths as
+ * `https://fs.knesset.gov.il/25\law\25_lst_2807878.docx` where v2 wrote the
+ * same file with forward slashes, and the committee and plenum tables use
+ * forward slashes in both feeds. A backslash never means anything in a URL
+ * path, so normalise: the link is tidier, and the path becomes a stable
+ * identity for the file across both feeds.
+ */
+function normaliseFilePath(path: string | null): string | null {
+  return path ? path.replace(/\\/g, "/") : null;
+}
+
+/**
+ * The row key is the document id paired with ApplicationID.
+ *
+ * v2 forced this: it reused one id across a document's published formats, so
+ * the id alone collided. v4 gives every row a distinct `Id`, which would make
+ * the plain id enough — but the pairing is still a correct key, and changing
+ * the format would rewrite every document row and invalidate the attendance
+ * cache, which is keyed on it, for no gain.
  */
 function docKey(documentId: string | number, applicationId: number | null): { id: string; applicationId: number } {
   const appId = applicationId ?? 0;
@@ -127,8 +149,8 @@ async function ingestStatuses() {
   step("KNS_Status — bill / item status labels");
   const rows = await fetchAll<RawStatus>("KNS_Status");
   const n = await writeBatched(rows, (r) => {
-    const data = { statusId: r.StatusID, desc: r.Desc, typeDesc: r.TypeDesc, isActive: parseBool(r.IsActive) };
-    return prisma.status.upsert({ where: { statusId: r.StatusID }, create: data, update: data });
+    const data = { statusId: r.Id, desc: r.Desc, typeDesc: r.TypeDesc, isActive: parseBool(r.IsActive) };
+    return prisma.status.upsert({ where: { statusId: r.Id }, create: data, update: data });
   });
   await record("KNS_Status", rows.length, n, true);
   done(`${n} statuses`);
@@ -140,30 +162,53 @@ async function ingestFactions() {
   const rows = await fetchAll<RawFaction>("KNS_Faction");
   const n = await writeBatched(rows, (r) => {
     const data = {
-      factionId: r.FactionID, name: r.Name, knessetNum: r.KnessetNum,
+      factionId: r.Id, name: r.Name, knessetNum: r.KnessetNum,
       startDate: parseDate(r.StartDate), finishDate: parseDate(r.FinishDate),
       isCurrent: parseBool(r.IsCurrent), lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.faction.upsert({ where: { factionId: r.FactionID }, create: data, update: data });
+    return prisma.faction.upsert({ where: { factionId: r.Id }, create: data, update: data });
   });
   await record("KNS_Faction", rows.length, n, true);
   done(`${n} factions`);
 }
 
+/**
+ * Committees reference their parent committee, so a row can only be written
+ * once its parent exists. The feed does not guarantee that order — one of the
+ * 2,901 rows arrives before its parent — and against an empty database that is
+ * a foreign key violation on the first batch. Sort by depth in the parent
+ * chain, and drop a parent id the feed does not itself define.
+ */
+function orderParentsFirst(rows: RawCommittee[]): RawCommittee[] {
+  const known = new Set(rows.map((r) => r.Id));
+  const parentOf = new Map(rows.map((r) => [r.Id, r.ParentCommitteeID]));
+
+  const depth = (id: number) => {
+    let d = 0;
+    for (let p = parentOf.get(id); p != null && known.has(p) && d < 50; p = parentOf.get(p)) d++;
+    return d;
+  };
+  return [...rows].sort((a, b) => depth(a.Id) - depth(b.Id));
+}
+
 async function ingestCommittees() {
   step("KNS_Committee");
   const rows = await fetchAll<RawCommittee>("KNS_Committee");
-  const n = await writeBatched(rows, (r) => {
+  const known = new Set(rows.map((r) => r.Id));
+  const orphaned = rows.filter((r) => r.ParentCommitteeID != null && !known.has(r.ParentCommitteeID)).length;
+
+  const n = await writeBatched(orderParentsFirst(rows), (r) => {
+    const parentCommitteeId = r.ParentCommitteeID != null && known.has(r.ParentCommitteeID) ? r.ParentCommitteeID : null;
     const data = {
-      committeeId: r.CommitteeID, name: r.Name, categoryDesc: r.CategoryDesc, knessetNum: r.KnessetNum,
-      committeeTypeDesc: r.CommitteeTypeDesc, parentCommitteeId: r.ParentCommitteeID,
+      committeeId: r.Id, name: r.Name, categoryDesc: r.CategoryDesc, knessetNum: r.KnessetNum,
+      committeeTypeDesc: r.CommitteeTypeDesc, parentCommitteeId,
       parentName: r.CommitteeParentName, isCurrent: parseBool(r.IsCurrent),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.committee.upsert({ where: { committeeId: r.CommitteeID }, create: data, update: data });
+    return prisma.committee.upsert({ where: { committeeId: r.Id }, create: data, update: data });
   });
-  await record("KNS_Committee", rows.length, n, true);
-  done(`${n} committees`);
+  await record("KNS_Committee", rows.length, n, true, orphaned ? `${orphaned} parent ids not in the feed` : undefined);
+  done(`${n} committees${orphaned ? ` (${orphaned} with an unknown parent, unlinked)` : ""}`);
 }
 
 async function ingestPeople() {
@@ -172,23 +217,58 @@ async function ingestPeople() {
   // bill-initiator foreign key resolvable regardless of which term they served.
   const [people, siteCodes] = await Promise.all([
     fetchAll<RawPerson>("KNS_Person"),
-    fetchAll<RawMkSiteCode>("KNS_MkSiteCode"),
+    // The one table still read from the deprecated v2 service, because v4's
+    // copy is broken: both feeds carry the same 1,115 rows with the same
+    // SiteIds, but 177 of v4's `KnsID` values point at people who do not exist
+    // in KNS_Person, so those rows resolve to nobody. v2's all resolve, and
+    // Wikidata's P9770 confirms v2 is the correct mapping — SiteId 953 is
+    // אמיר אוחנה in both. Taking v4 here would strip the SiteId from 105 of the
+    // 151 members of this Knesset, and SiteId is the key the photo pipeline
+    // joins on. Revisit when the resolution rate below stops complaining.
+    fetchAll<RawMkSiteCode>("KNS_MkSiteCode", { base: ODATA_V2_BASE }),
   ]);
-  const codeByPerson = new Map(siteCodes.map((s) => [s.KnsID, s.MKSiteCode]));
+  const codeByPerson = new Map(siteCodes.map((s) => [s.KnsID, String(s.MKSiteCode)]));
   const siteIdByPerson = new Map(siteCodes.map((s) => [s.KnsID, s.SiteId]));
 
   const n = await writeBatched(people, (r) => {
     const data = {
-      personId: r.PersonID, firstName: r.FirstName, lastName: r.LastName,
+      personId: r.Id, firstName: r.FirstName, lastName: r.LastName,
       genderDesc: r.GenderDesc, email: r.Email, isCurrent: parseBool(r.IsCurrent),
-      mkSiteCode: codeByPerson.get(r.PersonID) ?? null,
-      siteId: siteIdByPerson.get(r.PersonID) ?? null,
+      mkSiteCode: codeByPerson.get(r.Id) ?? null,
+      siteId: siteIdByPerson.get(r.Id) ?? null,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.person.upsert({ where: { personId: r.PersonID }, create: data, update: data });
+    return prisma.person.upsert({ where: { personId: r.Id }, create: data, update: data });
   });
-  await record("KNS_Person", people.length, n, true);
-  done(`${n} people (${codeByPerson.size} with a site code)`);
+  const resolved = people.filter((p) => codeByPerson.has(p.Id)).length;
+  if (resolved < siteCodes.length) {
+    console.warn(`  ! ${siteCodes.length - resolved} of ${siteCodes.length} site codes name a person the feed does not publish`);
+  }
+  await record("KNS_Person", people.length, n, true, `${resolved}/${siteCodes.length} site codes resolved`);
+  done(`${n} people (${resolved} with a site code)`);
+}
+
+/**
+ * A member's headline role, as a label.
+ *
+ * `DutyDesc` is the Knesset's own phrasing and wins when it exists. Otherwise
+ * the position description alone is often too vague to be useful — v4's
+ * committee rows describe 143 chairmanships as the bare "יו\"ר ועדה" — so name
+ * the committee when the row carries one.
+ */
+function describePosition(
+  row: RawPersonToPosition,
+  descById: Map<number, string | null>,
+): string | null {
+  if (row.DutyDesc) return row.DutyDesc;
+  const desc = descById.get(row.PositionID) ?? null;
+  if (!desc || !row.CommitteeName) return desc;
+  // Every committee-bearing position description ends in the generic word the
+  // committee name already carries, so joining them naively stutters:
+  // "יו\"ר ועדה — הוועדה המיוחדת לזכויות הילד". Drop the generic word and the
+  // Hebrew reads as the Knesset writes it: "יו\"ר הוועדה המיוחדת לזכויות הילד".
+  const prefix = desc.replace(/\s+ועדה$/, "");
+  return prefix === desc ? `${desc} — ${row.CommitteeName}` : `${prefix} ${row.CommitteeName}`;
 }
 
 async function ingestPositions() {
@@ -197,7 +277,7 @@ async function ingestPositions() {
     fetchAll<RawPersonToPosition>("KNS_PersonToPosition", { filter: `KnessetNum eq ${KNESSET}` }),
     fetchAll<RawPosition>("KNS_Position"),
   ]);
-  const descById = new Map(positionTypes.map((p) => [p.PositionID, p.Description]));
+  const descById = new Map(positionTypes.map((p) => [p.Id, p.Description]));
 
   // Only keep rows whose person we actually mirrored, so the FK holds.
   const known = new Set((await prisma.person.findMany({ select: { personId: true } })).map((p) => p.personId));
@@ -205,7 +285,7 @@ async function ingestPositions() {
 
   const n = await writeBatched(usable, (r) => {
     const data = {
-      personToPositionId: r.PersonToPositionID, personId: r.PersonID, positionId: r.PositionID,
+      personToPositionId: r.Id, personId: r.PersonID, positionId: r.PositionID,
       positionDesc: descById.get(r.PositionID) ?? null, knessetNum: r.KnessetNum,
       startDate: parseDate(r.StartDate), finishDate: parseDate(r.FinishDate),
       factionId: r.FactionID, factionName: r.FactionName, dutyDesc: r.DutyDesc,
@@ -214,7 +294,7 @@ async function ingestPositions() {
       isCurrent: parseBool(r.IsCurrent),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.personPosition.upsert({ where: { personToPositionId: r.PersonToPositionID }, create: data, update: data });
+    return prisma.personPosition.upsert({ where: { personToPositionId: r.Id }, create: data, update: data });
   });
   await record("KNS_PersonToPosition", rows.length, n, true);
   done(`${n} positions`);
@@ -275,7 +355,7 @@ async function ingestPositions() {
         bloc: blocFor(factionRow?.FactionID),
         governmentRole,
         isMinister: govRow != null,
-        roleDesc: notable ? (notable.DutyDesc ?? descById.get(notable.PositionID) ?? null) : null,
+        roleDesc: notable ? describePosition(notable, descById) : null,
         mkStartDate: starts.length ? new Date(Math.min(...starts.map((d) => d.getTime()))) : null,
         mkEndDate: stillServing || ends.length === 0 ? null : new Date(Math.max(...ends.map((d) => d.getTime()))),
       },
@@ -308,7 +388,7 @@ async function ingestBills(): Promise<number[]> {
 
   const n = await writeBatched(rows, (r) => {
     const data = {
-      billId: r.BillID, knessetNum: r.KnessetNum, name: r.Name,
+      billId: r.Id, knessetNum: r.KnessetNum, name: r.Name,
       subTypeId: r.SubTypeID, subTypeDesc: r.SubTypeDesc,
       privateNumber: r.PrivateNumber, number: r.Number,
       committeeId: r.CommitteeID != null && knownCommittees.has(r.CommitteeID) ? r.CommitteeID : null,
@@ -319,11 +399,11 @@ async function ingestBills(): Promise<number[]> {
       isContinuationBill: r.IsContinuationBill,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.bill.upsert({ where: { billId: r.BillID }, create: data, update: data });
+    return prisma.bill.upsert({ where: { billId: r.Id }, create: data, update: data });
   });
   await record("KNS_Bill", rows.length, n, true, `${total} available upstream`);
   done(`${n} bills (of ${total} in Knesset ${KNESSET})`);
-  return rows.map((r) => r.BillID);
+  return rows.map((r) => r.Id);
 }
 
 async function ingestBillInitiators(billIds: number[]) {
@@ -334,11 +414,11 @@ async function ingestBillInitiators(billIds: number[]) {
 
   const n = await writeBatched(usable, (r) => {
     const data = {
-      billInitiatorId: r.BillInitiatorID, billId: r.BillID, personId: r.PersonID,
+      billInitiatorId: r.Id, billId: r.BillID, personId: r.PersonID,
       isInitiator: parseBool(r.IsInitiator), ordinal: r.Ordinal,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.billInitiator.upsert({ where: { billInitiatorId: r.BillInitiatorID }, create: data, update: data });
+    return prisma.billInitiator.upsert({ where: { billInitiatorId: r.Id }, create: data, update: data });
   });
   await record("KNS_BillInitiator", rows.length, n, true);
   done(`${n} sponsorships${rows.length - usable.length ? ` (${rows.length - usable.length} skipped: unknown person)` : ""}`);
@@ -365,14 +445,14 @@ async function ingestSessions(extraSessionIds: number[]): Promise<number[]> {
   });
 
   // Bills can be discussed in sittings of an earlier term; pull those in too.
-  const have = new Set(rows.map((r) => r.CommitteeSessionID));
+  const have = new Set(rows.map((r) => r.Id));
   const missing = extraSessionIds.filter((id) => !have.has(id));
-  rows.push(...(await fetchByIds<RawCommitteeSession>("KNS_CommitteeSession", "CommitteeSessionID", missing, { label: "extra sessions" })));
+  rows.push(...(await fetchByIds<RawCommitteeSession>("KNS_CommitteeSession", "Id", missing, { label: "extra sessions" })));
 
   const knownCommittees = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
   const n = await writeBatched(rows, (r) => {
     const data = {
-      committeeSessionId: r.CommitteeSessionID, number: r.Number, knessetNum: r.KnessetNum,
+      committeeSessionId: r.Id, number: r.Number, knessetNum: r.KnessetNum,
       typeDesc: r.TypeDesc,
       committeeId: r.CommitteeID != null && knownCommittees.has(r.CommitteeID) ? r.CommitteeID : null,
       statusDesc: r.StatusDesc, location: r.Location, sessionUrl: r.SessionUrl,
@@ -380,21 +460,21 @@ async function ingestSessions(extraSessionIds: number[]): Promise<number[]> {
       finishDate: parseDate(r.FinishDate), note: r.Note,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.committeeSession.upsert({ where: { committeeSessionId: r.CommitteeSessionID }, create: data, update: data });
+    return prisma.committeeSession.upsert({ where: { committeeSessionId: r.Id }, create: data, update: data });
   });
   await record("KNS_CommitteeSession", rows.length, n, true);
   done(`${n} sessions (${missing.length} pulled in for bill timelines)`);
-  return rows.map((r) => r.CommitteeSessionID);
+  return rows.map((r) => r.Id);
 }
 
 /** Fetch every agenda item for the ingested sessions (bill items already in hand). */
 async function collectSessionItems(billItems: RawCmtSessionItem[], sessionIds: number[]): Promise<RawCmtSessionItem[]> {
   step("KNS_CmtSessionItem — full agendas of the ingested sessions");
   const items = [...billItems];
-  const seen = new Set(items.map((i) => i.CmtSessionItemID));
+  const seen = new Set(items.map((i) => i.Id));
   const fetched = await fetchByIds<RawCmtSessionItem>("KNS_CmtSessionItem", "CommitteeSessionID", sessionIds, { label: "agendas" });
   for (const row of fetched) {
-    if (!seen.has(row.CmtSessionItemID)) { seen.add(row.CmtSessionItemID); items.push(row); }
+    if (!seen.has(row.Id)) { seen.add(row.Id); items.push(row); }
   }
   done(`${items.length} agenda items`);
   return items;
@@ -417,14 +497,14 @@ async function backfillReferencedBills(
 
   if (wanted.length === 0) { done("nothing to backfill"); return []; }
 
-  const rows = await fetchByIds<RawBill>("KNS_Bill", "BillID", wanted, { label: "backfill bills" });
+  const rows = await fetchByIds<RawBill>("KNS_Bill", "Id", wanted, { label: "backfill bills" });
 
   const knownCommittees = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
   const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
 
   const n = await writeBatched(rows, (r) => {
     const data = {
-      billId: r.BillID, knessetNum: r.KnessetNum, name: r.Name,
+      billId: r.Id, knessetNum: r.KnessetNum, name: r.Name,
       subTypeId: r.SubTypeID, subTypeDesc: r.SubTypeDesc,
       privateNumber: r.PrivateNumber, number: r.Number,
       committeeId: r.CommitteeID != null && knownCommittees.has(r.CommitteeID) ? r.CommitteeID : null,
@@ -435,17 +515,17 @@ async function backfillReferencedBills(
       isContinuationBill: r.IsContinuationBill,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.bill.upsert({ where: { billId: r.BillID }, create: data, update: data });
+    return prisma.bill.upsert({ where: { billId: r.Id }, create: data, update: data });
   });
   await record("KNS_Bill:backfill", rows.length, n, true);
   done(`${n} additional bills`);
-  return rows.map((r) => r.BillID);
+  return rows.map((r) => r.Id);
 }
 
 async function writeSessionItems(items: RawCmtSessionItem[], sessionIds: number[]) {
   step("Writing agenda items and linking them to bills");
   const itemTypes = await fetchAll<RawItemType>("KNS_ItemType");
-  const typeDesc = new Map(itemTypes.map((t) => [t.ItemTypeID, t.Desc]));
+  const typeDesc = new Map(itemTypes.map((t) => [t.Id, t.Desc]));
   const knownSessions = new Set(sessionIds);
   const knownBills = new Set((await prisma.bill.findMany({ select: { billId: true } })).map((b) => b.billId));
   const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
@@ -456,7 +536,7 @@ async function writeSessionItems(items: RawCmtSessionItem[], sessionIds: number[
     // only if we actually hold that bill, otherwise the FK would dangle.
     const isBill = r.ItemTypeID === ITEM_TYPE_BILL && r.ItemID != null && knownBills.has(r.ItemID);
     const data = {
-      cmtSessionItemId: r.CmtSessionItemID, itemId: r.ItemID, itemTypeId: r.ItemTypeID,
+      cmtSessionItemId: r.Id, itemId: r.ItemID, itemTypeId: r.ItemTypeID,
       itemTypeDesc: r.ItemTypeID != null ? (typeDesc.get(r.ItemTypeID) ?? null) : null,
       committeeSessionId: r.CommitteeSessionID, billId: isBill ? r.ItemID : null,
       ordinal: r.Ordinal,
@@ -464,10 +544,50 @@ async function writeSessionItems(items: RawCmtSessionItem[], sessionIds: number[
       name: r.Name,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.sessionItem.upsert({ where: { cmtSessionItemId: r.CmtSessionItemID }, create: data, update: data });
+    return prisma.sessionItem.upsert({ where: { cmtSessionItemId: r.Id }, create: data, update: data });
   });
   await record("KNS_CmtSessionItem", items.length, n, true);
   done(`${n} agenda items written`);
+}
+
+/**
+ * Delete document rows the feed no longer publishes, re-pointing anything that
+ * referenced them first.
+ *
+ * Normally that means a retraction upstream, and there are none most runs. The
+ * reason it exists is the v2 → v4 switch: the two feeds number the same file
+ * differently — v2 called this protocol 552478 where v4 calls it 625948, and it
+ * is v4's number that appears in the file's own URL — so upserting v4 rows into
+ * a database built from v2 leaves the old rows behind and shows every protocol
+ * and every bill text twice. `filePath` is byte-identical in both feeds, which
+ * is what lets attendance keep its provenance across the change.
+ *
+ * Only rows under `parentIds` are considered, so a partial run (`--bills=100`)
+ * cannot delete anything it did not just refresh.
+ */
+async function pruneStaleDocuments(
+  label: string,
+  parentIds: number[],
+  written: Array<{ id: string; filePath: string | null }>,
+  existing: Array<{ id: string; filePath: string | null; parentId: number }>,
+  remove: (ids: string[]) => Promise<unknown>,
+  relink?: (fromId: string, toId: string) => Promise<number>,
+): Promise<void> {
+  const inScope = new Set(parentIds);
+  const kept = new Set(written.map((w) => w.id));
+  const newIdByPath = new Map(written.flatMap((w) => (w.filePath ? [[w.filePath, w.id] as const] : [])));
+  const stale = existing.filter((r) => inScope.has(r.parentId) && !kept.has(r.id));
+  if (stale.length === 0) return;
+
+  let relinked = 0;
+  if (relink) {
+    for (const row of stale) {
+      const to = row.filePath ? newIdByPath.get(row.filePath) : undefined;
+      if (to) relinked += await relink(row.id, to);
+    }
+  }
+  for (const part of chunk(stale.map((r) => r.id), 250)) await remove(part);
+  console.log(`  · ${stale.length} stale ${label} removed${relinked ? `, ${relinked} attendance rows re-pointed` : ""}`);
 }
 
 async function ingestSessionDocuments(sessionIds: number[]) {
@@ -477,16 +597,26 @@ async function ingestSessionDocuments(sessionIds: number[]) {
   const usable = rows.filter((r) => knownSessions.has(r.CommitteeSessionID));
 
   const n = await writeBatched(usable, (r) => {
-    const { id, applicationId } = docKey(r.DocumentCommitteeSessionID, r.ApplicationID);
+    const { id, applicationId } = docKey(r.Id, r.ApplicationID);
     const data = {
-      id, documentCommitteeSessionId: String(r.DocumentCommitteeSessionID), applicationId,
+      id, documentCommitteeSessionId: String(r.Id), applicationId,
       committeeSessionId: r.CommitteeSessionID,
       groupTypeId: r.GroupTypeID, groupTypeDesc: r.GroupTypeDesc,
-      applicationDesc: r.ApplicationDesc, filePath: r.FilePath,
+      applicationDesc: r.ApplicationDesc, filePath: normaliseFilePath(r.FilePath),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.sessionDocument.upsert({ where: { id }, create: data, update: data });
   });
+  await pruneStaleDocuments(
+    "protocol rows",
+    sessionIds,
+    usable.map((r) => ({ id: docKey(r.Id, r.ApplicationID).id, filePath: normaliseFilePath(r.FilePath) })),
+    (await prisma.sessionDocument.findMany({ select: { id: true, filePath: true, committeeSessionId: true } }))
+      .map((d) => ({ id: d.id, filePath: d.filePath, parentId: d.committeeSessionId })),
+    (ids) => prisma.sessionDocument.deleteMany({ where: { id: { in: ids } } }),
+    async (fromId, toId) =>
+      (await prisma.committeeParticipant.updateMany({ where: { sourceDocumentId: fromId }, data: { sourceDocumentId: toId } })).count,
+  );
   await record("KNS_DocumentCommitteeSession", rows.length, n, true);
   done(`${n} documents`);
 }
@@ -507,15 +637,23 @@ async function ingestBillDocuments(billIds: number[]) {
   const usable = rows.filter((r) => known.has(r.BillID));
 
   const n = await writeBatched(usable, (r) => {
-    const { id, applicationId } = docKey(r.DocumentBillID, r.ApplicationID);
+    const { id, applicationId } = docKey(r.Id, r.ApplicationID);
     const data = {
-      id, documentBillId: String(r.DocumentBillID), applicationId, billId: r.BillID,
+      id, documentBillId: String(r.Id), applicationId, billId: r.BillID,
       groupTypeId: r.GroupTypeID, groupTypeDesc: r.GroupTypeDesc,
-      applicationDesc: r.ApplicationDesc, filePath: r.FilePath,
+      applicationDesc: r.ApplicationDesc, filePath: normaliseFilePath(r.FilePath),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.billDocument.upsert({ where: { id }, create: data, update: data });
   });
+  await pruneStaleDocuments(
+    "bill document rows",
+    billIds,
+    usable.map((r) => ({ id: docKey(r.Id, r.ApplicationID).id, filePath: normaliseFilePath(r.FilePath) })),
+    (await prisma.billDocument.findMany({ select: { id: true, filePath: true, billId: true } }))
+      .map((d) => ({ id: d.id, filePath: d.filePath, parentId: d.billId })),
+    (ids) => prisma.billDocument.deleteMany({ where: { id: { in: ids } } }),
+  );
   await record("KNS_DocumentBill", rows.length, n, true);
   const withDocs = new Set(usable.map((r) => r.BillID)).size;
   done(`${n} documents across ${withDocs} bills`);
@@ -524,8 +662,10 @@ async function ingestBillDocuments(billIds: number[]) {
 /**
  * KNS_JointCommittee — which committees make up a joint committee.
  *
- * The declared key `JointCommitteeID` is not unique (the value "1" recurs), so
- * rows are keyed on the committee pair instead.
+ * v2 declared a key, `JointCommitteeID`, that was not unique — the value "1"
+ * recurred — so rows are keyed on the committee pair instead. v4 issues a
+ * genuine unique `Id`, but the pair is still the right key for us: it is what
+ * makes a re-run idempotent, and the same pair can appear twice upstream.
  */
 async function ingestJointCommittees() {
   step("KNS_JointCommittee — composition of joint committees");
@@ -544,7 +684,7 @@ async function ingestJointCommittees() {
     const where = { committeeId_participantCommitteeId: { committeeId: r.CommitteeID, participantCommitteeId: r.ParticipantCommitteeID } };
     const data = {
       committeeId: r.CommitteeID, participantCommitteeId: r.ParticipantCommitteeID,
-      jointCommitteeId: r.JointCommitteeID != null ? String(r.JointCommitteeID) : null,
+      jointCommitteeId: String(r.Id),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.jointCommittee.upsert({ where, create: data, update: data });
@@ -567,16 +707,16 @@ async function ingestPlenumSessions(): Promise<number[]> {
   });
   const n = await writeBatched(rows, (r) => {
     const data = {
-      plenumSessionId: r.PlenumSessionID, number: r.Number, knessetNum: r.KnessetNum,
+      plenumSessionId: r.Id, number: r.Number, knessetNum: r.KnessetNum,
       name: r.Name, startDate: parseDate(r.StartDate), finishDate: parseDate(r.FinishDate),
       isSpecialMeeting: parseBool(r.IsSpecialMeeting),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.plenumSession.upsert({ where: { plenumSessionId: r.PlenumSessionID }, create: data, update: data });
+    return prisma.plenumSession.upsert({ where: { plenumSessionId: r.Id }, create: data, update: data });
   });
   await record("KNS_PlenumSession", rows.length, n, true);
   done(`${n} plenum sittings`);
-  return rows.map((r) => r.PlenumSessionID);
+  return rows.map((r) => r.Id);
 }
 
 /** Every appearance of the given bills on a plenum agenda — the reading history. */
@@ -596,10 +736,37 @@ async function fetchPlenumAgendas(sessionIds: number[]): Promise<RawPlmSessionIt
 /** Merge item batches, keeping one row per upstream primary key. */
 function mergePlenumItems(...batches: RawPlmSessionItem[][]): RawPlmSessionItem[] {
   const byId = new Map<number, RawPlmSessionItem>();
-  for (const batch of batches) for (const r of batch) byId.set(r.plmPlenumSessionID, r);
+  for (const batch of batches) for (const r of batch) byId.set(r.Id, r);
   return [...byId.values()];
 }
 
+/**
+ * A note on what is deliberately NOT done here: stale plenum items are not
+ * pruned, even though the feeds renumbered them (the same 13,430 items carry v2
+ * ids in 886,959–1,012,648 and v4 ids in 83,445–168,862, with no overlap), so a
+ * database built against v2 keeps both copies and shows every reading twice.
+ *
+ * Pruning cannot be done safely for this entity. `KNS_PlmSessionItem` is the
+ * one table that answers nondeterministically: the identical request — same
+ * filter, same `$skip`, same `$orderby=Id` — returns a different ~7% of rows on
+ * each call while `@odata.count` stays put. (`KNS_CmtSessionItem`,
+ * `KNS_DocumentCommitteeSession` and `KNS_BillInitiator` were checked the same
+ * way and are stable, so this is not general paging behaviour, which is why the
+ * document tables above do prune.) Deleting whatever a run did not return would
+ * throw away a thousand good rows and re-add them next time. Deleting only rows
+ * whose content reappeared under a new id fails too: 1,376 content identities
+ * are held by more than one row upstream, so a flickering row whose twin came
+ * back would be deleted as if superseded.
+ *
+ * The renumbering is a one-time event, so it belongs in a one-time cleanup
+ * rather than in every run. Upgrading a v2-built database: delete the rows in
+ * the old id space once, after a full ingest —
+ *
+ *   DELETE FROM PlenumSessionItem WHERE plmSessionItemId > 800000;
+ *
+ * — and confirm against `SELECT MAX(plmSessionItemId)` that the surviving rows
+ * are the v4 ones. This has already been applied to the database in this repo.
+ */
 async function writePlenumItems(items: RawPlmSessionItem[], sessionIds: number[]) {
   step("Writing plenum agenda items and linking them to bills");
   const knownSessions = new Set(sessionIds);
@@ -607,12 +774,12 @@ async function writePlenumItems(items: RawPlmSessionItem[], sessionIds: number[]
   const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
 
   const usable = items.filter((i) => knownSessions.has(i.PlenumSessionID));
-  const n = await writeBatched(usable, (r) => {
+  const rows = usable.map((r) => {
     const isBill = r.ItemTypeID === ITEM_TYPE_BILL && r.ItemID != null && knownBills.has(r.ItemID);
     // Ordinal is an Int64 upstream and arrives as a string.
     const ordinal = r.Ordinal == null ? null : Number(r.Ordinal);
-    const data = {
-      plmSessionItemId: r.plmPlenumSessionID, itemId: r.ItemID, itemTypeId: r.ItemTypeID,
+    return {
+      plmSessionItemId: r.Id, itemId: r.ItemID, itemTypeId: r.ItemTypeID,
       itemTypeDesc: r.ItemTypeDesc, plenumSessionId: r.PlenumSessionID,
       billId: isBill ? r.ItemID : null,
       ordinal: Number.isFinite(ordinal) ? ordinal : null,
@@ -621,8 +788,10 @@ async function writePlenumItems(items: RawPlmSessionItem[], sessionIds: number[]
       isDiscussion: r.IsDiscussion === 1,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.plenumSessionItem.upsert({ where: { plmSessionItemId: r.plmPlenumSessionID }, create: data, update: data });
   });
+  const n = await writeBatched(rows, (data) =>
+    prisma.plenumSessionItem.upsert({ where: { plmSessionItemId: data.plmSessionItemId }, create: data, update: data }),
+  );
   await record("KNS_PlmSessionItem", items.length, n, true);
   const skipped = items.length - usable.length;
   // Continuation bills can be read in sittings of an earlier term, which we do
@@ -638,16 +807,24 @@ async function ingestPlenumDocuments(sessionIds: number[]) {
   const usable = rows.filter((r) => known.has(r.PlenumSessionID));
 
   const n = await writeBatched(usable, (r) => {
-    const { id, applicationId } = docKey(r.DocumentPlenumSessionID, r.ApplicationID);
+    const { id, applicationId } = docKey(r.Id, r.ApplicationID);
     const data = {
-      id, documentPlenumSessionId: String(r.DocumentPlenumSessionID), applicationId,
+      id, documentPlenumSessionId: String(r.Id), applicationId,
       plenumSessionId: r.PlenumSessionID,
       groupTypeId: r.GroupTypeID, groupTypeDesc: r.GroupTypeDesc,
-      applicationDesc: r.ApplicationDesc, filePath: r.FilePath,
+      applicationDesc: r.ApplicationDesc, filePath: normaliseFilePath(r.FilePath),
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
     return prisma.plenumDocument.upsert({ where: { id }, create: data, update: data });
   });
+  await pruneStaleDocuments(
+    "transcript rows",
+    sessionIds,
+    usable.map((r) => ({ id: docKey(r.Id, r.ApplicationID).id, filePath: normaliseFilePath(r.FilePath) })),
+    (await prisma.plenumDocument.findMany({ select: { id: true, filePath: true, plenumSessionId: true } }))
+      .map((d) => ({ id: d.id, filePath: d.filePath, parentId: d.plenumSessionId })),
+    (ids) => prisma.plenumDocument.deleteMany({ where: { id: { in: ids } } }),
+  );
   await record("KNS_DocumentPlenumSession", rows.length, n, true);
   done(`${n} transcripts`);
 }
@@ -720,10 +897,10 @@ async function ingestGovMinistries() {
   const rows = await fetchAll<RawGovMinistry>("KNS_GovMinistry");
   const n = await writeBatched(rows, (r) => {
     const data = {
-      govMinistryId: r.GovMinistryID, name: r.Name?.trim() ?? null,
+      govMinistryId: r.Id, name: r.Name?.trim() ?? null,
       isActive: parseBool(r.IsActive), lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.govMinistry.upsert({ where: { govMinistryId: r.GovMinistryID }, create: data, update: data });
+    return prisma.govMinistry.upsert({ where: { govMinistryId: r.Id }, create: data, update: data });
   });
   await record("KNS_GovMinistry", rows.length, n, true);
   done(`${n} ministries`);
@@ -754,7 +931,7 @@ async function ingestQuestions(): Promise<number[]> {
     if (r.PersonID != null && !knownPeople.has(r.PersonID)) unknownPerson++;
 
     const data = {
-      questionId: r.QueryID, number: r.Number, knessetNum: r.KnessetNum, name: r.Name,
+      questionId: r.Id, number: r.Number, knessetNum: r.KnessetNum, name: r.Name,
       typeId: r.TypeID, typeDesc: r.TypeDesc,
       statusId: r.StatusID != null && knownStatuses.has(r.StatusID) ? r.StatusID : null,
       personId: r.PersonID != null && knownPeople.has(r.PersonID) ? r.PersonID : null,
@@ -765,31 +942,50 @@ async function ingestQuestions(): Promise<number[]> {
       replyDaysLate: daysLate,
       lastUpdatedDate: parseDate(r.LastUpdatedDate),
     };
-    return prisma.question.upsert({ where: { questionId: r.QueryID }, create: data, update: data });
+    return prisma.question.upsert({ where: { questionId: r.Id }, create: data, update: data });
   });
   await record("KNS_Query", rows.length, n, true);
   done(`${n} questions${unknownPerson ? ` (${unknownPerson} from a person we do not hold)` : ""}`);
-  return rows.map((r) => r.QueryID);
+  return rows.map((r) => r.Id);
 }
 
+/**
+ * Question documents are the one table v4 does not serve over OData.
+ *
+ * Its metadata and service document both advertise the set as
+ * `KNS_DocumentQuerie` — and that URL 404s, with or without query options.
+ * `KNS_DocumentQuery` answers instead, but outside OData: a bare JSON array
+ * with camelCase keys and no `value` envelope or `@odata.count`. `$top`,
+ * `$skip` and `$filter … in (…)` all work, and the ids match the ones in the
+ * file names, so the data is v4's. Treat the casing here as a property of that
+ * one endpoint, not a style choice.
+ */
 async function ingestQuestionDocuments(questionIds: number[]) {
   step("KNS_DocumentQuery — question texts and ministers' replies");
   const rows = await fetchByIds<RawQueryDocument>("KNS_DocumentQuery", "QueryID", questionIds, { label: "question documents" });
   const known = new Set(questionIds);
-  const usable = rows.filter((r) => known.has(r.QueryID));
+  const usable = rows.filter((r) => known.has(r.queryID));
 
   const n = await writeBatched(usable, (r) => {
-    // This table issues a distinct id per format, so the id alone is safe here
-    // — unlike the bill and session document tables.
-    const id = String(r.DocumentQueryID);
+    // This table always issued a distinct id per format, even under v2 when the
+    // other document tables did not, so the id alone has always been safe here.
+    const id = String(r.id);
     const data = {
-      documentQueryId: id, questionId: r.QueryID,
-      groupTypeId: r.GroupTypeID, groupTypeDesc: r.GroupTypeDesc,
-      applicationDesc: r.ApplicationDesc, filePath: r.FilePath,
-      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+      documentQueryId: id, questionId: r.queryID,
+      groupTypeId: r.groupTypeID, groupTypeDesc: r.groupTypeDesc,
+      applicationDesc: r.applicationDesc, filePath: normaliseFilePath(r.filePath),
+      lastUpdatedDate: parseDate(r.lastUpdatedDate),
     };
     return prisma.questionDocument.upsert({ where: { documentQueryId: id }, create: data, update: data });
   });
+  await pruneStaleDocuments(
+    "question document rows",
+    questionIds,
+    usable.map((r) => ({ id: String(r.id), filePath: normaliseFilePath(r.filePath) })),
+    (await prisma.questionDocument.findMany({ select: { documentQueryId: true, filePath: true, questionId: true } }))
+      .map((d) => ({ id: d.documentQueryId, filePath: d.filePath, parentId: d.questionId })),
+    (ids) => prisma.questionDocument.deleteMany({ where: { documentQueryId: { in: ids } } }),
+  );
   await record("KNS_DocumentQuery", rows.length, n, true);
   done(`${n} documents`);
 }
@@ -799,7 +995,7 @@ async function main() {
     ? `LIMITED: ${BILL_LIMIT ?? "all"} bills, ${SESSION_LIMIT ?? "all"} committee sessions, ${PLENUM_AGENDA_LIMIT ?? "all"} plenum agendas`
     : "the complete term";
   console.log(`Galui ETL → Knesset ${KNESSET} — ${scope}`);
-  console.log(`Source: https://knesset.gov.il/Odata/ParliamentInfo.svc`);
+  console.log(`Source: ${ODATA_BASE}`);
 
   await ingestStatuses();
   await ingestFactions();
@@ -821,7 +1017,7 @@ async function main() {
   // --- Plenum side: sittings, reading histories and recent agendas --------
   const plenumSessionIds = await ingestPlenumSessions();
 
-  step(`KNS_PlmSessionItem — agendas of the ${PLENUM_AGENDA_LIMIT} most recent sittings`);
+  step(`KNS_PlmSessionItem — agendas of ${PLENUM_AGENDA_LIMIT ? `the ${PLENUM_AGENDA_LIMIT} most recent sittings` : "every sitting"}`);
   const agendaItems = await fetchPlenumAgendas(plenumSessionIds);
   done(`${agendaItems.length} agenda items`);
 

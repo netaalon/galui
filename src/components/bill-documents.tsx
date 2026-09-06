@@ -3,7 +3,6 @@ import { EmptyState } from "@/components/page-header";
 
 type Doc = {
   id: string;
-  documentBillId: string;
   groupTypeId: number | null;
   groupTypeDesc: string | null;
   applicationDesc: string | null;
@@ -11,22 +10,32 @@ type Doc = {
 };
 
 /**
- * The Knesset publishes each bill text once per format, as separate rows
- * sharing a documentBillId. Present them as one entry with a link per format
- * rather than as near-duplicate rows.
+ * The Knesset publishes each bill text once per format. Present the formats as
+ * one entry with a link each, rather than as near-duplicate rows.
+ *
+ * Group on the file path without its extension, not on `documentBillId`. Under
+ * the v2 feed the DOC and the PDF of one text shared an id, so the id worked;
+ * v4 gives each row its own id and grouping by it would list every text twice.
+ * What both feeds agree on is the file name — `25/law/25_lst_2807878.docx` and
+ * `…2807878.pdf` are one document in two formats — so the stem is the identity.
  */
+function stem(filePath: string): string {
+  return filePath.replace(/\.[^./]*$/, "");
+}
+
 function group(docs: Doc[]) {
   const byDoc = new Map<string, { label: string; stage: number; formats: Array<{ id: string; label: string; href: string }> }>();
 
   for (const d of docs) {
     if (!d.filePath) continue;
-    const entry = byDoc.get(d.documentBillId) ?? {
+    const key = stem(d.filePath);
+    const entry = byDoc.get(key) ?? {
       label: d.groupTypeDesc?.trim() || "מסמך",
       stage: d.groupTypeId ?? 999,
       formats: [],
     };
     entry.formats.push({ id: d.id, label: d.applicationDesc ?? "קובץ", href: d.filePath });
-    byDoc.set(d.documentBillId, entry);
+    byDoc.set(key, entry);
   }
 
   return [...byDoc.values()].sort((a, b) => a.stage - b.stage);

@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { formatDate, fullName } from "@/lib/format";
 import { getBill } from "@/lib/queries";
 import { buildBillTimeline } from "@/lib/timeline";
+import { sourceRecordUrl } from "@/lib/odata-link";
 
 export const dynamic = "force-dynamic";
 
@@ -186,7 +187,7 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
                 כל הנתונים בעמוד זה נשאבו מ־KNS_Bill ומהישויות הקשורות בשירות ה־OData של הכנסת.
               </p>
               <a
-                href={`https://knesset.gov.il/Odata/ParliamentInfo.svc/KNS_Bill(${bill.billId})?$format=json`}
+                href={sourceRecordUrl("KNS_Bill", bill.billId)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
