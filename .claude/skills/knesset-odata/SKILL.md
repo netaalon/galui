@@ -82,15 +82,37 @@ the shape of the guess, not just its contents.
 |---|---|
 | `KNS_MkIndividual` | **Does not exist**, in either feed. MK status is derived from `KNS_PersonToPosition` rows with `PositionID` 43 (חבר הכנסת) or 61 (חברת הכנסת); faction comes from the `PositionID` 54 row. |
 | A bill's explanation | `KNS_Bill.SummaryLaw` is populated **only after a bill passes third reading** (7% of bills). For everything else the explanation is in the PDF. |
-| Member photos | No image field, and no working endpoint. `GetMkImage` returns the literal string `"value"`. Photos come from Wikimedia Commons; see `scripts/fetch-photos.ts`. |
+| Member photos | **No image field in either feed, still.** Re-checked against v4: not one of the 48 entity types has a property matching image/photo/picture/img/avatar/portrait, `KNS_Person` is byte-identical to v2's eight columns, and the old `GetMkImage` paths 404. Photos come from Wikimedia Commons; see `scripts/fetch-photos.ts`. |
 | Coalition / opposition | **Not published per MK, in either feed.** Only the two leadership posts exist (`PositionID` 30 and 131, one row each for Knesset 25). The curated map in `src/lib/factions.ts` is the source, and it needs re-checking as coalitions shift. |
 
 Committee membership **is** published — `KNS_PersonToPosition` rows carry a
 `CommitteeID` in v4 (12,628 rows, 1,632 for Knesset 25) where in v2 not one of
-11,102 rows did. The ETL now stores them. The committee and member pages still
-show attendance-derived rosters from `scripts/protocols/`; wiring the official
-roster in is issue #19's remaining step. Do not describe attendance as the only
-thing obtainable.
+11,102 rows did. The ETL stores them. For Knesset 25, by `PositionID`:
+
+| id | role | rows | currently serving |
+|---|---|---|---|
+| 41 | יו"ר ועדה | 143 | 72 |
+| 42 | חבר ועדה | 1,000 | 477 |
+| 66 | חברת ועדה | 285 | 199 |
+| 67 | מ"מ חבר ועדה | 204 | 83 |
+
+Chairs come with their history — a committee shows its former chairs with
+`IsCurrent` false — so 86 committees have had a chair and 72 have one now.
+
+The committee and member pages still show attendance-derived rosters from
+`scripts/protocols/`, and the two are **not interchangeable**: attendance counts
+everyone who turned up, so it runs 2–3x larger than the appointed membership
+(ועדת החוץ והביטחון: 31 official, 78 attended; ועדת החינוך: 18 against 62).
+Attendance answers "who actually shows up", the official roster answers "who is
+on this committee". Do not present one as the other, and do not describe
+attendance as the only thing obtainable.
+
+**The attendance pipeline is not superseded by the official roster and must not
+be removed.** The gap between the two is the point: subtracting the appointed
+membership from the people who attended leaves the visitors, guests and
+substitutes, which no OData table gives you and which is the intended basis for
+a future "who came to this committee" view. Keep `scripts/protocols/` and
+`CommitteeParticipant`.
 
 ## Keys, and where the metadata lies
 
@@ -186,6 +208,23 @@ Two consequences:
   handled by a documented one-time `DELETE`, not by the ETL. See the note above
   `writePlenumItems()`.
 
+## Data v4 moved rather than dropped
+
+Before concluding a field is gone, look for a table that took it over. The
+column emptying out is not the same as the data disappearing — this caught me
+once already.
+
+- **`KNS_CommitteeSession.BroadcastUrl` is null on every row in v4**, where 7,384
+  Knesset 25 sittings carried one in v2. The data moved to
+  **`KNS_BroadcastCommitteSession`** (109,256 rows, 20,576 with a URL), keyed on
+  an `Id` that *is* the CommitteeSessionID. Every one of a 150-sitting sample
+  resolved. The replacement links are better: `https` rather than `http`, and a
+  per-committee archive page instead of the generic `AllCommitteesBroadcast`
+  one. `ingestBroadcastUrls()` restores them — 7,115 of the 7,441 sittings that
+  had one under v2. The remaining 326 are present in the new table with a null
+  `BroadcastUrl` (mostly joint committees and subcommittees), so that residue is
+  the feed's, not ours.
+
 ## Where v4 is worse than v2, measured
 
 Migrating is right, but it is not a pure gain. Every figure below is a
@@ -200,9 +239,6 @@ table-by-table diff of the same term ingested from each feed.
   25**, and `SiteId` is the key the photo pipeline joins on. `ingestPeople()`
   reads it from `ODATA_V2_BASE` and warns if the resolution rate drops. It is
   the only such exception; do not add a second without this much evidence.
-- **`KNS_CommitteeSession.BroadcastUrl` is empty in v4.** 7,384 sittings of
-  Knesset 25 carry one in v2 and **zero** do in v4. Nothing renders it today, so
-  the column is simply always null now — do not build on it.
 - **Plenum documents are thinner.** v4 drops three types outright: `תור מליאה`
   (16,778 → 0), `סטנוגרמה` (401 → 0) and `תוכן עניינים` (401 → 0). Every other
   type is identical row for row, including `דברי הכנסת`, the actual transcript,
@@ -312,3 +348,7 @@ Not yet ingested — each is an open issue, not an oversight:
 - `KNS_SecondaryLaw` (60,297), `KNS_IsraelLaw` and the law-correction tables.
 - `KNS_BillSplit` / `KNS_BillUnion` — why a bill's page can look empty (#18).
 - `KNS_BillName` — a bill's renaming history.
+
+Present in v4 and now ingested: committee membership (above) and
+`KNS_BroadcastCommitteSession`. Absent from v4 as from v2: member photos, and
+per-MK coalition/opposition.

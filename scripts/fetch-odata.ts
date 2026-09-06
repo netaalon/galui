@@ -32,6 +32,7 @@ interface RawCommitteeSession { Id: number; Number: number | null; KnessetNum: n
 interface RawCmtSessionItem { Id: number; ItemID: number | null; ItemTypeID: number | null; CommitteeSessionID: number; Ordinal: number | null; StatusID: number | null; Name: string | null; LastUpdatedDate: string | null }
 interface RawSessionDocument { Id: number; CommitteeSessionID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawItemType { Id: number; Desc: string | null }
+interface RawBroadcast { Id: number; BroadcastId: number | null; BroadcastUrl: string | null }
 interface RawJointCommittee { Id: number; CommitteeID: number; ParticipantCommitteeID: number; LastUpdatedDate: string | null }
 interface RawGovMinistry { Id: number; Name: string | null; IsActive: boolean | null; LastUpdatedDate: string | null }
 interface RawQuery { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; TypeID: number | null; TypeDesc: string | null; StatusID: number | null; PersonID: number | null; GovMinistryID: number | null; SubmitDate: string | null; ReplyMinisterDate: string | null; ReplyDatePlanned: string | null; LastUpdatedDate: string | null }
@@ -590,6 +591,28 @@ async function pruneStaleDocuments(
   console.log(`  · ${stale.length} stale ${label} removed${relinked ? `, ${relinked} attendance rows re-pointed` : ""}`);
 }
 
+/**
+ * Committee broadcast links.
+ *
+ * v4 empties `KNS_CommitteeSession.BroadcastUrl` — every one of the 7,384
+ * Knesset 25 sittings that carried one under v2 is null there now — and moves
+ * the data into a table of its own, keyed on an `Id` that is the
+ * CommitteeSessionID. The URLs are better than the ones they replace: https
+ * rather than http, and a per-committee archive page instead of the generic
+ * AllCommitteesBroadcast one.
+ */
+async function ingestBroadcastUrls(sessionIds: number[]) {
+  step("KNS_BroadcastCommitteSession — committee broadcast links");
+  const rows = await fetchByIds<RawBroadcast>("KNS_BroadcastCommitteSession", "Id", sessionIds, { label: "broadcasts" });
+  const known = new Set(sessionIds);
+  const usable = rows.filter((r) => r.BroadcastUrl != null && known.has(r.Id));
+  const n = await writeBatched(usable, (r) =>
+    prisma.committeeSession.updateMany({ where: { committeeSessionId: r.Id }, data: { broadcastUrl: r.BroadcastUrl } }),
+  );
+  await record("KNS_BroadcastCommitteSession", rows.length, n, true);
+  done(`${n} broadcast links across ${sessionIds.length} sittings`);
+}
+
 async function ingestSessionDocuments(sessionIds: number[]) {
   step("KNS_DocumentCommitteeSession — protocol files");
   const rows = await fetchByIds<RawSessionDocument>("KNS_DocumentCommitteeSession", "CommitteeSessionID", sessionIds, { label: "protocols" });
@@ -1010,6 +1033,7 @@ async function main() {
   // --- Committee side: sessions and their agendas -------------------------
   const { items: billItems, sessionIds: billSessionIds } = await findSessionsForBills(billIds);
   const sessionIds = await ingestSessions(billSessionIds);
+  await ingestBroadcastUrls(sessionIds);
   const committeeItems = await collectSessionItems(billItems, sessionIds);
 
   const cmtBackfilled = await backfillReferencedBills(committeeItems);
