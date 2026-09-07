@@ -2,6 +2,7 @@ import { ExternalLink, FileDown, Gavel } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MemberActivityChart } from "@/components/member-activity-chart";
+import { CommitteeRoster } from "@/components/committee-roster";
 import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -13,6 +14,7 @@ import {
   getCommitteeActivity,
   getCommitteeBills,
   getCommitteeMembership,
+  getCommitteeRoster,
   getCommitteeSessions,
 } from "@/lib/queries";
 import { fullName } from "@/lib/format";
@@ -34,11 +36,12 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
   const committee = await getCommittee(committeeId);
   if (!committee) notFound();
 
-  const [sessions, bills, activity, membership] = await Promise.all([
+  const [sessions, bills, activity, membership, roster] = await Promise.all([
     getCommitteeSessions(committeeId, 25),
     getCommitteeBills(committeeId, 25),
     getCommitteeActivity(committeeId),
     getCommitteeMembership(committeeId),
+    getCommitteeRoster(committeeId),
   ]);
 
   return (
@@ -222,12 +225,30 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
             </Card>
           ) : null}
 
-          <Card>
+          {roster.hasRoster ? (
+            <Card data-testid="committee-roster">
+              <CardHeader>
+                <CardTitle>הרכב הוועדה</CardTitle>
+                <CardDescription>ההרכב הרשמי, לפי מינויי הכנסת.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CommitteeRoster
+                  chairs={roster.chairs}
+                  members={roster.members}
+                  substitutes={roster.substitutes}
+                  past={roster.past}
+                  blocs={roster.blocs}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card data-testid="committee-attendance">
             <CardHeader>
-              <CardTitle>הרכב</CardTitle>
+              <CardTitle>מי נכח בישיבות</CardTitle>
               <CardDescription>
-                לפי נוכחות בפועל בפרוטוקולים, ולא לפי ההרכב הרשמי — מי שלא נכח
-                בישיבה אינו מופיע כאן.
+                לפי רשימות הנוכחים בפרוטוקולים — כולל אורחים ומחליפים שאינם חברי
+                הוועדה, ובלי מי שלא הגיע. זו אינה רשימת ההרכב.
               </CardDescription>
             </CardHeader>
             <CardContent>

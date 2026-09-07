@@ -589,6 +589,122 @@ export async function getCommitteesForMember(personId: number, take = 8) {
  * attendees under `חברי הוועדה:` with the chair marked. Someone who never
  * attends will not appear, and the counts are attendance, not tenure.
  */
+// ---------------------------------------------------------------------------
+// Official committee rosters
+//
+// From KNS_PersonToPosition rows carrying a CommitteeID — the composition the
+// Knesset actually appoints, as opposed to who turned up, which is what
+// CommitteeParticipant records. The two are not interchangeable and both pages
+// show them separately: Finance has 20 appointed members against 67 people who
+// have attended it.
+// ---------------------------------------------------------------------------
+
+/** יו"ר ועדה. */
+const POSITION_COMMITTEE_CHAIR = 41;
+/**
+ * חבר ועדה / חברת ועדה — the same role in masculine and feminine, not two
+ * roles. 102 men hold 42 and 31 women hold 66, and nobody holds both on one
+ * committee; splitting on them would split every roster by gender.
+ */
+const POSITION_COMMITTEE_MEMBER = [42, 66];
+/** מ"מ חבר ועדה — a substitute, who is NOT a member. Counting them together
+ *  inflates every committee: Finance has 20 members and 5 substitutes. */
+const POSITION_COMMITTEE_SUBSTITUTE = 67;
+
+const ROSTER_POSITIONS = [POSITION_COMMITTEE_CHAIR, ...POSITION_COMMITTEE_MEMBER, POSITION_COMMITTEE_SUBSTITUTE];
+
+export type RosterSeat = {
+  personToPositionId: number;
+  role: "chair" | "member" | "substitute";
+  startDate: Date | null;
+  finishDate: Date | null;
+  person: {
+    personId: number;
+    firstName: string | null;
+    lastName: string | null;
+    factionName: string | null;
+    bloc: string | null;
+    imageUrl: string | null;
+    imageCredit: string | null;
+  };
+};
+
+function seatRole(positionId: number): RosterSeat["role"] {
+  if (positionId === POSITION_COMMITTEE_CHAIR) return "chair";
+  if (positionId === POSITION_COMMITTEE_SUBSTITUTE) return "substitute";
+  return "member";
+}
+
+/**
+ * A committee's appointed composition, current seats and past ones separately.
+ *
+ * `isCurrent` is trustworthy here: across the term's 1,632 committee-position
+ * rows, not one is flagged current while carrying a finish date, nor flagged
+ * past without one.
+ */
+export async function getCommitteeRoster(committeeId: number, knessetNum = 25) {
+  const rows = await prisma.personPosition.findMany({
+    where: { committeeId, knessetNum, positionId: { in: ROSTER_POSITIONS } },
+    orderBy: [{ positionId: "asc" }, { startDate: "asc" }],
+    include: {
+      person: {
+        select: {
+          personId: true, firstName: true, lastName: true,
+          factionName: true, bloc: true, imageUrl: true, imageCredit: true,
+        },
+      },
+    },
+  });
+
+  const seats: Array<RosterSeat & { isCurrent: boolean }> = rows.map((r) => ({
+    personToPositionId: r.personToPositionId,
+    role: seatRole(r.positionId),
+    startDate: r.startDate,
+    finishDate: r.finishDate,
+    isCurrent: r.isCurrent,
+    person: r.person,
+  }));
+
+  const current = seats.filter((s) => s.isCurrent);
+  const past = seats.filter((s) => !s.isCurrent);
+  const blocOf = (role: RosterSeat["role"]) => {
+    const counts = new Map<string, number>();
+    for (const s of current) {
+      if (s.role !== role) continue;
+      const key = s.person.bloc ?? "unknown";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  return {
+    chairs: current.filter((s) => s.role === "chair"),
+    members: current.filter((s) => s.role === "member"),
+    substitutes: current.filter((s) => s.role === "substitute"),
+    /** Seats that have ended — a former chair or member. */
+    past,
+    /** Coalition/opposition split of the sitting members, chair included. */
+    blocs: new Map([...blocOf("member"), ...blocOf("chair")].reduce((m, [k, v]) => {
+      m.set(k, (m.get(k) ?? 0) + v);
+      return m;
+    }, new Map<string, number>())),
+    hasRoster: seats.length > 0,
+  };
+}
+
+/** The committee seats a member holds, and the ones they have held. */
+export async function getMemberCommitteeSeats(personId: number, knessetNum = 25) {
+  const rows = await prisma.personPosition.findMany({
+    where: { personId, knessetNum, positionId: { in: ROSTER_POSITIONS }, committeeId: { not: null } },
+    orderBy: [{ isCurrent: "desc" }, { positionId: "asc" }],
+    select: {
+      personToPositionId: true, positionId: true, committeeId: true, committeeName: true,
+      isCurrent: true, startDate: true, finishDate: true,
+    },
+  });
+  return rows.map((r) => ({ ...r, role: seatRole(r.positionId) }));
+}
+
 export async function getCommitteeMembership(committeeId: number, take = 20) {
   const rows = await prisma.$queryRaw<
     Array<{ personId: number; sittings: bigint | number; asChair: bigint | number; lastSeen: string | null }>

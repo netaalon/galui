@@ -85,7 +85,21 @@ the shape of the guess, not just its contents.
 | Member photos | **No image field in either feed, still.** Re-checked against v4: not one of the 48 entity types has a property matching image/photo/picture/img/avatar/portrait, `KNS_Person` is byte-identical to v2's eight columns, and the old `GetMkImage` paths 404. Photos come from Wikimedia Commons; see `scripts/fetch-photos.ts`. |
 | Coalition / opposition | **Not published per MK, in either feed.** Only the two leadership posts exist (`PositionID` 30 and 131, one row each for Knesset 25). The curated map in `src/lib/factions.ts` is the source, and it needs re-checking as coalitions shift. |
 
-Committee membership **is** published — `KNS_PersonToPosition` rows carry a
+Committee membership **is** published, and is now on the committee and member
+pages. Two things to know before touching it: `PositionID` **42 and 66 are the
+same role in masculine and feminine** (102 men, 31 women, nobody holds both on
+one committee), so members are `42 ∪ 66` and splitting on them splits every
+roster by gender; and **67 is a substitute, not a member** — Finance has 20
+members and 5 מ"מ, so counting them together inflates every committee.
+
+Coverage for Knesset 25 is effectively complete: all 16 main committees and all
+15 special committees have a current roster, 30 of 37 subcommittees do, and the
+only three committees with no roster at all are subcommittees on classified
+budgets. All 1,632 rows carry a start date, 801 carry a finish date, and
+`IsCurrent` is exactly consistent with `FinishDate` — no row is flagged current
+while carrying one, or past without one.
+
+The original figures: — `KNS_PersonToPosition` rows carry a
 `CommitteeID` in v4 (12,628 rows, 1,632 for Knesset 25) where in v2 not one of
 11,102 rows did. The ETL stores them. For Knesset 25, by `PositionID`:
 

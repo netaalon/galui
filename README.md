@@ -63,7 +63,7 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | OData entity | Local model | Notes |
 | --- | --- | --- |
 | `KNS_Person` | `Person` | All ~1.2k people, so every sponsorship FK resolves |
-| `KNS_PersonToPosition` | `PersonPosition` | Roles, factions, committee seats |
+| `KNS_PersonToPosition` | `PersonPosition` | Roles, factions, and committee seats — the appointed roster |
 | `KNS_Bill` | `Bill` | |
 | `KNS_BillInitiator` | `BillInitiator` | Lead sponsor = `isInitiator` |
 | `KNS_Committee` | `Committee` | |

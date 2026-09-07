@@ -76,8 +76,12 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   Exists because `LastUpdatedDate` is rewritten in bulk. Order lists by this.
 - `Person.isMk` / `bloc` / `governmentRole` — derived, because the API has no
   MK entity and no bloc data.
-- `CommitteeParticipant` — attendance parsed from protocol headers, since the
-  API publishes no rosters.
+- `CommitteeParticipant` — attendance parsed from protocol headers. **Not the
+  roster**: the appointed composition comes from `PersonPosition` rows with a
+  `committeeId` (`getCommitteeRoster()`), and attendance is a third larger
+  because it counts everyone who turned up. Finance appoints 20 members and has
+  had 67 people in the room. Both are shown, in separate cards, and the gap
+  between them is the intended basis for a visitors view.
 - `SessionDocument.id` etc. — synthetic `"<documentId>:<applicationId>"`, because
   the upstream document ids were not unique per format under the v2 feed.
 - `PlenumVoteResult.personId` — **derived**, like `Person.isMk` and

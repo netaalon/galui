@@ -10,7 +10,8 @@ import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { countLabel, formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
-import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberQuestions, getMemberVotingRecord } from "@/lib/queries";
+import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberCommitteeSeats, getMemberQuestions, getMemberVotingRecord } from "@/lib/queries";
+import { MemberSeats } from "@/components/committee-roster";
 import { OutcomeBadge } from "@/components/vote-tally";
 
 export const dynamic = "force-dynamic";
@@ -29,12 +30,13 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   const member = await getMember(personId);
   if (!member) notFound();
 
-  const [activity, committeesByBill, attended, questions, votes] = await Promise.all([
+  const [activity, committeesByBill, attended, questions, votes, seats] = await Promise.all([
     getMemberActivityByMonth(personId),
     getCommitteesForMember(personId),
     getMemberCommitteeAttendance(personId, 10),
     getMemberQuestions(personId, 8),
     getMemberVotingRecord(personId, 8),
+    getMemberCommitteeSeats(personId),
   ]);
 
   const siteUrl = knessetMemberUrl(member.siteId);
@@ -201,12 +203,24 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
         </div>
 
         <aside className="min-w-0 space-y-6">
+          {seats.length > 0 ? (
+            <Card data-testid="member-seats">
+              <CardHeader>
+                <CardTitle>כיהן/ה בוועדות</CardTitle>
+                <CardDescription>מינויים רשמיים להרכב הוועדה.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <MemberSeats seats={seats} />
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
-              <CardTitle>ועדות</CardTitle>
+              <CardTitle>נוכחות בוועדות</CardTitle>
               <CardDescription>
                 {attended.length > 0
-                  ? "לפי נוכחות בפרוטוקולים; המספר הוא מספר הישיבות."
+                  ? "לפי רשימות הנוכחים בפרוטוקולים, כולל ועדות שאינו/ה חבר/ה בהן; המספר הוא מספר הישיבות."
                   : "אלה הוועדות שדנו בהצעות החוק של חבר/ת הכנסת."}
               </CardDescription>
             </CardHeader>

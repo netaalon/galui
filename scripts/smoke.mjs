@@ -45,7 +45,9 @@ async function check(path, fn) {
     /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/, /\bmemberLinks=0(?!\d)/,
     /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
     /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
-    /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/,
+    /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/, /\brosterMembers=0(?!\d)/,
+    /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
+    /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/,
     /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
   ];
   const hit = BAD.find((re) => re.test(result));
@@ -76,6 +78,29 @@ await check("/", async () => {
   await page.waitForTimeout(400);
   const after = await page.getAttribute("html", "class");
   return `dir=${dir} navLinks=${nav} theme: "${before}" -> "${after}"`;
+});
+
+// The official roster and the attendance list must both be present and clearly
+// separate: the appointed composition is a third the size of the set of people
+// who have attended, and conflating them was a claim this project already got
+// wrong once. 4186 is ועדת הכספים.
+await check("/committees/4186", async () => {
+  const chair = await page.locator('[data-testid="committee-roster"]').getByText("יושב/ת ראש").count();
+  // Serving seats only — past ones sit inside a collapsed <details>.
+  const all = await page.locator('[data-testid="committee-roster"] a[href^="/members/"]').count();
+  const past = await page.locator('[data-testid="committee-roster"] details a[href^="/members/"]').count();
+  const text = await page.locator('[data-testid="committee-roster"]').innerText();
+  const blocSplit = /מהקואליציה/.test(text) && /מהאופוזיציה/.test(text);
+  // The attendance card must say how many people it is not showing, or the two
+  // lists look the same size when one is three times the other.
+  const att = await page.locator('[data-testid="committee-attendance"]').innerText();
+  const disclosed = /עוד \d+ נכחו/.test(att) || !/מוצגים/.test(att);
+  return `rosterChair=${chair} rosterMembers=${all - past} rosterPast=${past} blocSplit=${blocSplit} attendanceDisclosed=${disclosed}`;
+});
+
+await check("/members/30719", async () => {
+  const seats = await page.locator('[data-testid="member-seats"] li').count();
+  return `memberSeats=${seats}`;
 });
 
 // The feed marks 98% of sponsors as `IsInitiator`, so no page may present a
@@ -151,14 +176,15 @@ await check("/committees", async () => {
   return `committee cards=${cards} typeGroups=${groups}`;
 });
 
-// Membership is derived from protocol attendance; the roster is capped so the
-// long tail of occasional visitors does not read as a committee's composition.
+// The attendance list is capped so the long tail of occasional visitors does
+// not read as a committee's composition, and it must say it is attendance —
+// the appointed roster is a separate card, checked above.
 await check("/committees/4186", async () => {
   const aside = page.locator("aside");
   const members = await aside.locator('a[href^="/members/"]').count();
   const text = await aside.innerText();
   const capped = /מוצגים \d+ הנוכחים/.test(text);
-  const caveat = text.includes("לפי נוכחות בפועל");
+  const caveat = text.includes("רשימות הנוכחים") && text.includes("זו אינה רשימת ההרכב");
   const chairCount = /יו״ר ×\d/.test(text);
   return `membershipRows=${members} capped=${capped} caveatShown=${caveat} chairCounts=${chairCount}`;
 });
