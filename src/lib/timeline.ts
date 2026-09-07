@@ -11,10 +11,22 @@ export type TimelineDoc = {
   href: string;
 };
 
+export type TimelineVote = {
+  voteId: number;
+  date: Date | null;
+  title: string | null;
+  subject: string | null;
+  forCount: number;
+  againstCount: number;
+  abstainCount: number;
+  presentCount: number;
+  totalCount: number;
+};
+
 export type TimelineEvent = {
   id: string;
   date: Date | null;
-  kind: "publication" | "committee" | "plenum" | "status";
+  kind: "publication" | "committee" | "plenum" | "vote" | "status";
   title: string;
   subtitle?: string | null;
   /** Where the event happened, e.g. the committee room. */
@@ -25,6 +37,12 @@ export type TimelineEvent = {
   debated?: boolean;
   docs: TimelineDoc[];
   href?: string | null;
+  /** Set on a "vote" event: the votes taken on this bill in one sitting. */
+  votes?: TimelineVote[];
+  /** How many more that sitting held beyond the ones listed. */
+  moreVotes?: number;
+  /** The sitting a vote event belongs to, which lists the rest. */
+  plenumSessionId?: number | null;
 };
 
 /**
@@ -80,11 +98,19 @@ function plenumDocs(session: PlenumSessionRef): TimelineDoc[] {
 }
 
 /**
+ * Votes shown inline on a timeline node before the rest are left to the sitting
+ * page — the same treatment the document lists get, and for the same reason:
+ * the 2023 budget was voted through section by section, 212 times over two
+ * sittings, which would bury the legislative spine it belongs to.
+ */
+const VOTES_SHOWN = 6;
+
+/**
  * Assemble a bill's history from the pieces the OData service exposes:
  * publication in the official gazette, every committee session that had it on
  * the agenda (KNS_CmtSessionItem), every plenum sitting where it was tabled or
- * read (KNS_PlmSessionItem — whose StatusID gives the reading stage), and its
- * current status as the closing node.
+ * read (KNS_PlmSessionItem — whose StatusID gives the reading stage), the votes
+ * taken on it (KNS_PlenumVote), and its current status as the closing node.
  *
  * The service has no per-bill event log, so this is a reconstruction: it is as
  * complete as the committee and plenum item tables, no more.
@@ -128,6 +154,53 @@ export function buildBillTimeline(bill: Bill): TimelineEvent[] {
       stage: item.status?.desc ?? null,
       debated: item.isDiscussion,
       docs: plenumDocs(item.session),
+    });
+  }
+
+  // Votes group by sitting rather than becoming one node each. Every one of the
+  // term's 6,762 bill votes falls in a sitting that already has a plenum item
+  // for that bill, so these land beside the reading they belong to — but a
+  // sitting can hold several items for one bill and nothing in the feed says
+  // which reading a given vote decided, so they are not attached to an item.
+  // Dating the node at its first vote's own timestamp is what puts it after the
+  // sitting's reading events, which are dated from the sitting's start.
+  const votesBySitting = new Map<number, Bill["votes"]>();
+  for (const v of bill.votes) {
+    if (v.plenumSessionId == null) continue;
+    votesBySitting.set(v.plenumSessionId, [...(votesBySitting.get(v.plenumSessionId) ?? []), v]);
+  }
+
+  for (const [plenumSessionId, votes] of votesBySitting) {
+    const ordered = [...votes].sort((a, b) => {
+      const at = a.voteDateTime?.getTime() ?? 0;
+      const bt = b.voteDateTime?.getTime() ?? 0;
+      return at - bt || (a.ordinal ?? 0) - (b.ordinal ?? 0);
+    });
+    const passed = ordered.filter((v) => v.totalCount > 0 && v.forCount > v.againstCount).length;
+    const failed = ordered.filter((v) => v.totalCount > 0 && v.forCount < v.againstCount).length;
+
+    events.push({
+      id: `vote-${plenumSessionId}`,
+      date: ordered[0]?.voteDateTime ?? null,
+      kind: "vote",
+      title: ordered.length === 1 ? "הצבעה במליאה" : `${ordered.length.toLocaleString("he-IL")} הצבעות במליאה`,
+      subtitle: [passed ? `${passed} עברו` : null, failed ? `${failed} נפלו` : null]
+        .filter(Boolean)
+        .join(" · ") || null,
+      docs: [],
+      plenumSessionId,
+      votes: ordered.slice(0, VOTES_SHOWN).map((v) => ({
+        voteId: v.voteId,
+        date: v.voteDateTime,
+        title: v.title,
+        subject: v.subject,
+        forCount: v.forCount,
+        againstCount: v.againstCount,
+        abstainCount: v.abstainCount,
+        presentCount: v.presentCount,
+        totalCount: v.totalCount,
+      })),
+      moreVotes: Math.max(0, ordered.length - VOTES_SHOWN),
     });
   }
 

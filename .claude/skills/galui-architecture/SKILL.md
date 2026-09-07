@@ -90,6 +90,10 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   whatever the vote was about, which is a bill only 6,762 times out of 7,536.
   The type comes from `KNS_PlmSessionItem.ItemTypeID`, never from assuming.
   Tallies live on the vote because the results table holds ~526k rows per term.
+  A bill's votes render **inside** `buildBillTimeline()`, grouped one node per
+  sitting and dated at that sitting's first vote so they interleave with the
+  readings; the node caps its list and links the sitting for the rest, the same
+  way document lists are capped.
 
 ## Commands
 

@@ -8,8 +8,7 @@ import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { OutcomeBadge, VoteTally } from "@/components/vote-tally";
-import { countLabel, formatDate, formatDateTime, fullName, truncate } from "@/lib/format";
+import { formatDate, fullName } from "@/lib/format";
 import { getBill } from "@/lib/queries";
 import { buildBillTimeline } from "@/lib/timeline";
 import { sourceRecordUrl } from "@/lib/odata-link";
@@ -122,32 +121,6 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
             </CardContent>
           </Card>
 
-          {bill.votes.length > 0 ? (
-            <Card data-testid="bill-votes">
-              <CardHeader>
-                <CardTitle>הצבעות במליאה</CardTitle>
-                <CardDescription>
-                  {countLabel(bill.votes.length, "הצבעה אחת", "הצבעות")} על הצעה זו, לפי סדר כרונולוגי.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3">
-                  {bill.votes.map((v) => (
-                    <li key={v.voteId} className="border-b pb-3 last:border-0 last:pb-0">
-                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                        <Link href={`/votes/${v.voteId}`} className="min-w-0 flex-1 text-sm font-medium leading-snug hover:underline">
-                          {truncate(v.subject, 110) || truncate(v.title, 110) || "הצבעה"}
-                        </Link>
-                        <OutcomeBadge tally={v} />
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(v.voteDateTime)}</p>
-                      <VoteTally tally={v} className="mt-2" />
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ) : null}
         </div>
 
         <aside className="min-w-0 space-y-6">

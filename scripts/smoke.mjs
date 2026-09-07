@@ -44,7 +44,8 @@ async function check(path, fn) {
     /\bvoteRows=0(?!\d)/, /\btallied=0(?!\d)/, /\bvoterNames=0(?!\d)/,
     /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/, /\bmemberLinks=0(?!\d)/,
     /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
-    /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/,
+    /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
+    /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -256,15 +257,23 @@ await check("/members/30719", async () => {
   return `memberVoteCard=${card} memberVoteRows=${rows}`;
 });
 
-// A bill that was voted on must list its votes, and each vote must link back to
-// the bill. 2203819 is the 2023 budget, the most-voted bill of the term.
+// Votes belong inside the timeline, interleaved with the readings, not in a
+// section of their own. 2203819 is the 2023 budget: 212 votes over two
+// sittings, so the node caps its list and links the sitting for the rest.
 await check("/bills/2203819", async () => {
-  const votes = await page.locator('[data-testid="bill-votes"] a[href^="/votes/"]').count();
-  return `billVotes=${votes}`;
+  const inTimeline = await page.locator('ol.border-s li a[href^="/votes/"]').count();
+  const ownSection = await page.locator('[data-testid="bill-votes"]').count();
+  const moreLink = await page.locator('ol.border-s li a[href^="/plenum/"]').count();
+  // Vote nodes must sit between the reading nodes, not all bunched at the end.
+  const kinds = await page.locator("ol.border-s > li").evaluateAll((ns) =>
+    ns.map((n) => (n.textContent || "").includes("הצבעות במליאה") || (n.textContent || "").includes("הצבעה במליאה") ? "v" : "-").join(""),
+  );
+  const interleaved = /-v.*-/.test(kinds);
+  return `billVotes=${inTimeline} separateSection=${ownSection} moreLink=${moreLink} interleaved=${interleaved}`;
 });
 
 await check("/bills/2203819", async () => {
-  const href = await page.locator('[data-testid="bill-votes"] a[href^="/votes/"]').first().getAttribute("href");
+  const href = await page.locator('ol.border-s li a[href^="/votes/"]').first().getAttribute("href");
   await page.goto(S + href, { waitUntil: "networkidle" });
   const back = await page.locator('a[href="/bills/2203819"]').count();
   return `billLinkOnVote=${back}`;
