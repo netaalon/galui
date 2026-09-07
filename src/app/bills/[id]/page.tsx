@@ -29,6 +29,11 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
   if (!bill) notFound();
 
   const events = buildBillTimeline(bill);
+  // Published in ספר החוקים, i.e. it became law. This maps exactly onto the
+  // status "התקבלה בקריאה שלישית" — checked across the corpus, no enacted bill
+  // lacks the series and no unenacted bill carries it — so it serves as the
+  // test without matching a Hebrew status string.
+  const becameLaw = bill.publicationSeriesDesc != null;
   // One list, in the order the Knesset lists them. There is no lead-sponsor
   // split to make: `KNS_BillInitiator.IsInitiator` is true on 98% of rows.
   // Government bills are initiated by a ministry, not by MKs, so KNS_BillInitiator
@@ -96,6 +101,23 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
               <CardContent>
                 <p className="whitespace-pre-line text-sm leading-relaxed break-words text-muted-foreground">
                   {bill.summaryLaw}
+                </p>
+              </CardContent>
+            </Card>
+          ) : becameLaw ? (
+            // A bill that passed and has no summary used to render nothing here,
+            // which is indistinguishable from the page being broken — the
+            // Knesset simply had not written one yet. 39 of the term's 594
+            // enacted bills are in this position, mostly recent ones, and every
+            // single one of them does carry the published text below.
+            <Card data-testid="bill-summary-pending">
+              <CardHeader>
+                <CardTitle>תקציר</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  הצעת החוק התקבלה ופורסמה ברשומות, אך הכנסת טרם פרסמה עבורה תקציר.
+                  נוסח החוק כפי שפורסם מופיע במסמכים שלהלן.
                 </p>
               </CardContent>
             </Card>

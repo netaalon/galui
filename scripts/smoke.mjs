@@ -46,6 +46,7 @@ async function check(path, fn) {
     /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
     /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
     /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/, /\brosterMembers=0(?!\d)/,
+    /\bsummaryExplained=false\b/, /\benactedText=0(?!\d)/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
     /\bseatDupes=[1-9]/,
@@ -128,6 +129,20 @@ await check("/bills/2229019", async () => {
 await check("/members/30719", async () => {
   const leadBadges = (await page.locator("body").innerText()).split("יוזם/ת ראשי/ת").length - 1;
   return `member leadBadges=${leadBadges}`;
+});
+
+// A bill that became law but has no summary must say so. Rendering nothing is
+// indistinguishable from a broken page, which is how this was reported. 2219672
+// is one of the 39 enacted bills the Knesset has not written a summary for.
+await check("/bills/2219672", async () => {
+  const summary = await page.locator('[data-testid="bill-summary-pending"]').count();
+  const explained = summary === 1 && (await page.locator('[data-testid="bill-summary-pending"]').innerText()).includes("טרם פרסמה");
+  // The substance is always present even when the summary is not.
+  const enacted = await page
+    .getByTestId("bill-documents")
+    .getByText("פרסום ברשומות")
+    .count();
+  return `summaryExplained=${explained} enactedText=${enacted}`;
 });
 
 // A bill whose only activity is one plenum sitting: its text must still be here.

@@ -81,7 +81,7 @@ the shape of the guess, not just its contents.
 | Expectation | Reality |
 |---|---|
 | `KNS_MkIndividual` | **Does not exist**, in either feed. MK status is derived from `KNS_PersonToPosition` rows with `PositionID` 43 (חבר הכנסת) or 61 (חברת הכנסת); faction comes from the `PositionID` 54 row. |
-| A bill's explanation | `KNS_Bill.SummaryLaw` is populated **only after a bill passes third reading** (7% of bills). For everything else the explanation is in the PDF. |
+| A bill's explanation | `KNS_Bill.SummaryLaw` is populated **only after a bill passes third reading**, and not even always then: 39 of this term's 594 enacted bills have none, 31 of those from the last two years, so it is written with a lag — though a 2014 bill is still waiting. Never treat its absence on an enacted bill as a fault; the bill page says so explicitly. The published text is a better fallback and is *always* there — all 39 carry a `פרסום ברשומות` document. For unenacted bills the explanation is only in the PDF. |
 | Member photos | **No image field in either feed, still.** Re-checked against v4: not one of the 48 entity types has a property matching image/photo/picture/img/avatar/portrait, `KNS_Person` is byte-identical to v2's eight columns, and the old `GetMkImage` paths 404. Photos come from Wikimedia Commons; see `scripts/fetch-photos.ts`. |
 | Coalition / opposition | **Not published per MK, in either feed.** Only the two leadership posts exist (`PositionID` 30 and 131, one row each for Knesset 25). The curated map in `src/lib/factions.ts` is the source, and it needs re-checking as coalitions shift. |
 
@@ -395,6 +395,10 @@ shows up.
 - **`KNS_BillHistoryInitiator`** (10,769 rows) records sponsors who came *off* a
   bill, with an `EndDate` and a `ReasonDesc` such as `חדל להיות חבר כנסת`. A
   sponsor list is a snapshot; this is its history.
+- **`PublicationSeriesDesc` is an exact test for "became law".** It is non-null
+  on precisely the 594 bills that passed third reading and null on every other
+  bill in the corpus — no enacted bill lacks it, none unenacted carries it — so
+  it beats matching the Hebrew status string. The value is always `ספר החוקים`.
 - **Knesset 25 spans two governments.** The 36th was still in office when the
   term opened, so its ministers appear in the position data. Filter on
   `GovernmentNum` before calling anyone a serving minister.
