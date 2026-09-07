@@ -42,7 +42,8 @@ async function check(path, fn) {
     /\bcapped=false\b/, /\bchairCounts=false\b/, /\btypeGroups=0(?!\d)/, /\bcommitteeBars=0(?!\d)/,
     /\bcommitteeBills=0(?!\d)/, /\bmemberCommittees=0(?!\d)/,
     /\bvoteRows=0(?!\d)/, /\btallied=0(?!\d)/, /\bvoterNames=0(?!\d)/,
-    /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/,
+    /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/, /\bmemberLinks=0(?!\d)/,
+    /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -237,7 +238,21 @@ await check("/votes", async () => {
   await page.waitForLoadState("networkidle");
   const names = await page.locator("li.break-words").count();
   const fallbacks = await page.locator("li.break-words", { hasText: /^מזהה \d+$/ }).count();
-  return `vote page voterNames=${names} idFallbacks=${fallbacks}`;
+  const memberLinks = await page.locator('li.break-words a[href^="/members/"]').count();
+  const sittingLink = await page.locator('a[href^="/plenum/"]').count();
+  return `vote page voterNames=${names} idFallbacks=${fallbacks} memberLinks=${memberLinks} sittingLink=${sittingLink}`;
+});
+
+// A sitting must list the votes taken in it, and a member their voting record.
+await check("/plenum/2245272", async () => {
+  const votes = await page.locator('[data-testid="plenum-votes"] a[href^="/votes/"]').count();
+  return `sittingVotes=${votes}`;
+});
+
+await check("/members/30719", async () => {
+  const card = await page.locator('[data-testid="member-votes"]').count();
+  const rows = await page.locator('[data-testid="member-votes"] a[href^="/votes/"]').count();
+  return `memberVoteCard=${card} memberVoteRows=${rows}`;
 });
 
 // Horizontal overflow check on mobile width

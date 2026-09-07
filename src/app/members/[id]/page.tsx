@@ -10,7 +10,8 @@ import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { countLabel, formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
-import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberQuestions } from "@/lib/queries";
+import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberQuestions, getMemberVotingRecord } from "@/lib/queries";
+import { OutcomeBadge } from "@/components/vote-tally";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +29,12 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
   const member = await getMember(personId);
   if (!member) notFound();
 
-  const [activity, committeesByBill, attended, questions] = await Promise.all([
+  const [activity, committeesByBill, attended, questions, votes] = await Promise.all([
     getMemberActivityByMonth(personId),
     getCommitteesForMember(personId),
     getMemberCommitteeAttendance(personId, 10),
     getMemberQuestions(personId, 8),
+    getMemberVotingRecord(personId, 8),
   ]);
 
   const leadCount = member.billsInitiated.filter((b) => b.isInitiator).length;
@@ -174,6 +176,34 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
               )}
             </CardContent>
           </Card>
+
+          {votes.total > 0 ? (
+            <Card data-testid="member-votes">
+              <CardHeader>
+                <CardTitle>הצבעות במליאה</CardTitle>
+                <CardDescription>
+                  {votes.total.toLocaleString("he-IL")} הצבעות ·{" "}
+                  {votes.byResult.map((r) => `${r.label} ${r.count.toLocaleString("he-IL")}`).join(" · ")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {votes.recent.map((r) => (
+                  <Link
+                    key={r.id}
+                    href={`/votes/${r.vote.voteId}`}
+                    className="-mx-2 block rounded-md px-2 py-3 transition-colors hover:bg-secondary/60"
+                  >
+                    <p className="font-medium leading-snug">{truncate(r.vote.title, 110)}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline">{r.resultDesc ?? "—"}</Badge>
+                      <OutcomeBadge tally={r.vote} />
+                      <span className="ms-auto tabular-nums">{formatRelative(r.vote.voteDateTime)}</span>
+                    </div>
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         <aside className="min-w-0 space-y-6">

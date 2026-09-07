@@ -183,13 +183,16 @@ Things worth knowing, all verified against the live service:
 - **Knesset 25 spans two governments.** The 36th was still in office when the
   term opened, so its ministers appear in the position data. Only roles whose
   `GovernmentNum` matches the sitting government (37) are shown as current.
-- **Votes are deliberately not joined to anything yet.** `PlenumVote` carries
-  the sitting id and the item id, and both do match `PlenumSession` and `Bill`.
-  `PlenumVoteResult.mkId` does not match anything: it is a **third** Knesset
-  person id space, distinct from both `personId` and `siteId` — חנוך דב מלביצקי
-  is 30842, 1105 and 34368 respectively. Joining it by number would file one
-  member's voting record under another. The vote pages show the names the feed
-  writes onto each result row instead, and say so.
+- **A vote's member link is derived, not given.** `PlenumVote.plenumSessionId`
+  is a real key and a real relation to the sitting. `PlenumVoteResult.mkId` is
+  not: it is a **third** Knesset person id space, distinct from both `personId`
+  and `siteId` — חנוך דב מלביצקי is 30842, 1105 and 34368 respectively — and no
+  entity in the feed relates them. So `personId` is resolved by exact match on
+  the name the feed writes onto each result row, leaving anything ambiguous
+  unresolved rather than guessing. It currently resolves 149 of 149 voter ids
+  and all 526,483 rows; the ETL prints the yield, and every member's votes were
+  independently checked to fall inside their own term of service. The bill a
+  vote decided (`itemId`) is not wired up yet.
 - **Government bills have no MK initiators** — they are submitted by a ministry,
   so `KNS_BillInitiator` is legitimately empty for them (100% of private bills
   have sponsors; only 10% of government bills do). The bill page says so rather

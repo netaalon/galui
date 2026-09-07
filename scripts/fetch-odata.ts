@@ -916,6 +916,77 @@ async function deriveBillFirstStep() {
 }
 
 
+/**
+ * Attach each vote result to a Person.
+ *
+ * `MkId` is a third Knesset person id space and no entity in the feed relates it
+ * to `PersonID`, so the only link is the name the feed writes onto every result
+ * row. That makes this a derivation, and the rule for derivations here is that a
+ * guess is worse than a gap: a wrong match files one member's voting record
+ * under another and nothing errors.
+ *
+ * So the match is exact on both names, a name resolving to more than one person
+ * is left alone rather than picked, and the yield is reported. When written it
+ * resolved 149 of 149 ids — each id carrying exactly one name spelling, no
+ * person claimed twice — and, checked independently of the match itself, every
+ * member's votes fell inside their own term of service. Watch the reported
+ * numbers rather than assuming that still holds.
+ */
+async function resolveVoteMembers() {
+  step("Resolving each vote result to a member");
+  const voters = await prisma.plenumVoteResult.findMany({
+    distinct: ["mkId"],
+    select: { mkId: true, firstName: true, lastName: true },
+  });
+  const people = await prisma.person.findMany({
+    select: { personId: true, firstName: true, lastName: true, isMk: true },
+  });
+
+  const key = (first: string | null, last: string | null) => `${first ?? ""}\u0000${last ?? ""}`;
+  const byName = new Map<string, Array<{ personId: number; isMk: boolean }>>();
+  for (const p of people) {
+    const k = key(p.firstName, p.lastName);
+    byName.set(k, [...(byName.get(k) ?? []), { personId: p.personId, isMk: p.isMk }]);
+  }
+
+  const resolved = new Map<number, number>();
+  let ambiguous = 0;
+  const unmatched: string[] = [];
+  for (const v of voters) {
+    const all = byName.get(key(v.firstName, v.lastName)) ?? [];
+    // An MK is the right answer where a name is shared with a non-member.
+    const mks = all.filter((p) => p.isMk);
+    const candidates = mks.length > 0 ? mks : all;
+    if (candidates.length === 1) resolved.set(v.mkId, candidates[0].personId);
+    else if (candidates.length > 1) {
+      ambiguous++;
+      console.warn(`  ! "${v.firstName} ${v.lastName}" matches ${candidates.length} people — left unresolved`);
+    } else unmatched.push(`${v.firstName} ${v.lastName}`);
+  }
+
+  // Two ids resolving to one person would mean the name match collided.
+  const claimed = new Map<number, number>();
+  for (const personId of resolved.values()) claimed.set(personId, (claimed.get(personId) ?? 0) + 1);
+  const collisions = [...claimed.values()].filter((n) => n > 1).length;
+  if (collisions) console.warn(`  ! ${collisions} people are claimed by more than one MkId — leaving those unresolved`);
+
+  const safe = [...resolved].filter(([, personId]) => (claimed.get(personId) ?? 0) === 1);
+  let rows = 0;
+  for (const [mkId, personId] of safe) {
+    const r = await prisma.plenumVoteResult.updateMany({ where: { mkId }, data: { personId } });
+    rows += r.count;
+  }
+  await record(
+    "resolveVoteMembers",
+    voters.length,
+    rows,
+    unmatched.length === 0 && ambiguous === 0 && collisions === 0,
+    `${safe.length}/${voters.length} ids resolved`,
+  );
+  if (unmatched.length) console.warn(`  ! ${unmatched.length} names matched nobody: ${unmatched.slice(0, 5).join(", ")}`);
+  done(`${safe.length}/${voters.length} voter ids resolved · ${rows.toLocaleString("he-IL")} result rows linked to a member`);
+}
+
 // ---------------------------------------------------------------------------
 // Written questions (שאילתות)
 // ---------------------------------------------------------------------------
@@ -1223,6 +1294,7 @@ async function main() {
   // Votes hang off the sittings, and stand alone otherwise.
   const voteIds = await ingestPlenumVotes(plenumSessionIds);
   await ingestPlenumVoteResults(voteIds);
+  await resolveVoteMembers();
 
   await ingestGovMinistries();
   const questionIds = await ingestQuestions();
@@ -1250,6 +1322,7 @@ async function main() {
     questionDocs: await prisma.questionDocument.count(),
     votes: await prisma.plenumVote.count(),
     voteResults: await prisma.plenumVoteResult.count(),
+    votesLinkedToMk: await prisma.plenumVoteResult.count({ where: { personId: { not: null } } }),
   };
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log(`\nDone in ${stamp()}.`);

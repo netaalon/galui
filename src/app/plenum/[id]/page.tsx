@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { OutcomeBadge, VoteTally } from "@/components/vote-tally";
 import { countLabel, formatDateTime, formatTime, truncate } from "@/lib/format";
 import { splitPlenumDocs } from "@/lib/plenum-docs";
 import { getPlenumSession } from "@/lib/queries";
@@ -118,6 +119,35 @@ export default async function PlenumSessionPage({ params }: { params: Promise<{ 
               )}
             </CardContent>
           </Card>
+
+          {session.votes.length > 0 ? (
+            <Card data-testid="plenum-votes">
+              <CardHeader>
+                <CardTitle>הצבעות בישיבה</CardTitle>
+                <CardDescription>
+                  {countLabel(session.votes.length, "הצבעה אחת", "הצבעות")} · לפי סדר הופעתן בישיבה
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {session.votes.map((v) => (
+                    <li key={v.voteId} className="border-b pb-3 last:border-0 last:pb-0">
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                        <Link href={`/votes/${v.voteId}`} className="min-w-0 flex-1 text-sm font-medium leading-snug hover:underline">
+                          {truncate(v.title, 120) || "הצבעה ללא כותרת"}
+                        </Link>
+                        <OutcomeBadge tally={v} />
+                      </div>
+                      {v.subject ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">{truncate(v.subject, 100)}</p>
+                      ) : null}
+                      <VoteTally tally={v} className="mt-2" />
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {other.length > 0 ? (
             <Card data-testid="plenum-other">

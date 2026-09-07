@@ -80,12 +80,14 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   API publishes no rosters.
 - `SessionDocument.id` etc. — synthetic `"<documentId>:<applicationId>"`, because
   the upstream document ids were not unique per format under the v2 feed.
-- `PlenumVote` / `PlenumVoteResult` — **standalone by design.** No foreign keys
-  to `PlenumSession`, `Bill` or `Person`, even though the sitting and item ids
-  do match. `PlenumVoteResult.mkId` is a third Knesset person id space and
-  resolving it is unfinished work; the vote pages show the names the feed
-  denormalises onto each result row, and say why they are not links. Tallies are
-  stored on the vote because the results table holds ~526k rows for one term.
+- `PlenumVoteResult.personId` — **derived**, like `Person.isMk` and
+  `Bill.firstStepDate`. `mkId` is a third Knesset person id space that no OData
+  entity relates to `personId`, so the link is an exact match on the name the
+  feed denormalises onto each result row; an ambiguous name stays null rather
+  than being guessed, and the ETL reports the yield. `PlenumVote.plenumSessionId`
+  *is* a real key and a real relation. The bill behind a vote (`itemId`) is not
+  wired up yet. Tallies live on the vote because the results table holds ~526k
+  rows for one term.
 
 ## Commands
 

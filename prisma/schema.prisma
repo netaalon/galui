@@ -65,6 +65,7 @@ model Person {
 
   positions  PersonPosition[]
   billsInitiated BillInitiator[]
+  voteResults PlenumVoteResult[]
   participations CommitteeParticipant[]
   questions  Question[]
 
@@ -383,6 +384,7 @@ model PlenumSession {
 
   items     PlenumSessionItem[]
   documents PlenumDocument[]
+  votes     PlenumVote[]
 
   @@index([knessetNum, startDate])
 }
@@ -561,7 +563,7 @@ model QuestionDocument {
 model PlenumVote {
   voteId          Int       @id
   voteDateTime    DateTime?
-  /// Upstream SessionID. Matches PlenumSession, but deliberately not a relation yet.
+  /// Upstream SessionID.
   plenumSessionId Int?
   /// Upstream ItemID. Matches Bill for bill votes, but not every item is a bill.
   itemId          Int?
@@ -582,6 +584,7 @@ model PlenumVote {
 
   lastUpdatedDate DateTime?
 
+  session PlenumSession? @relation(fields: [plenumSessionId], references: [plenumSessionId], onDelete: SetNull)
   results PlenumVoteResult[]
 
   @@index([voteDateTime])
@@ -593,9 +596,15 @@ model PlenumVote {
 ///
 /// **`mkId` is a third Knesset person id space.** It is not `Person.personId`
 /// and not `Person.siteId`: חנוך דב מלביצקי is personId 30842, siteId 1105 and
-/// mkId 34368. Joining it to a person by number would put one member's voting
-/// record on another's page without erroring. The feed denormalises the name
-/// onto every row, which is what the UI uses until the mapping is established.
+/// mkId 34368, and no entity in the feed relates them. `personId` below is
+/// therefore *derived*, by matching the name the feed denormalises onto every
+/// row — never by treating `mkId` as a person id.
+///
+/// The match is exact, not fuzzy, and measured: 149 distinct `mkId`s each carry
+/// exactly one name spelling, each spelling resolves to exactly one Person, no
+/// Person is claimed by two `mkId`s, and — checked independently of the match —
+/// every one of the 149 members voted only within their own term of service.
+/// Keep `firstName`/`lastName` so a future run can be re-checked against them.
 model PlenumVoteResult {
   id         Int     @id
   voteId     Int
@@ -605,9 +614,13 @@ model PlenumVoteResult {
   resultDesc String?
   firstName  String?
   lastName   String?
+  /// Derived — see the note above. Null when a name resolves to no single Person.
+  personId   Int?
 
-  vote PlenumVote @relation(fields: [voteId], references: [voteId], onDelete: Cascade)
+  vote   PlenumVote @relation(fields: [voteId], references: [voteId], onDelete: Cascade)
+  person Person?    @relation(fields: [personId], references: [personId], onDelete: SetNull)
 
   @@index([voteId])
   @@index([mkId])
+  @@index([personId])
 }

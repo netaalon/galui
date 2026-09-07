@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OutcomeBadge, RESULT_LABELS, VoteTally } from "@/components/vote-tally";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, fullName } from "@/lib/format";
 import { sourceRecordUrl } from "@/lib/odata-link";
 import { getVote } from "@/lib/queries";
 
@@ -26,6 +26,7 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
   })).filter((g) => g.members.length > 0);
 
   const ungrouped = vote.results.filter((r) => r.resultCode == null || !GROUP_ORDER.includes(r.resultCode));
+  const unlinked = vote.results.filter((r) => r.person == null).length;
 
   return (
     <>
@@ -63,7 +64,16 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
                 <ul className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                   {g.members.map((m) => (
                     <li key={m.id} className="min-w-0 break-words">
-                      {[m.firstName, m.lastName].filter(Boolean).join(" ") || `מזהה ${m.mkId}`}
+                      {m.person ? (
+                        <Link href={`/members/${m.person.personId}`} className="hover:underline">
+                          {fullName(m.person)}
+                        </Link>
+                      ) : (
+                        [m.firstName, m.lastName].filter(Boolean).join(" ") || `מזהה ${m.mkId}`
+                      )}
+                      {m.person?.factionName ? (
+                        <span className="ms-2 text-xs text-muted-foreground">{m.person.factionName}</span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -96,18 +106,22 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
               <CardTitle className="text-base">על ההצבעה</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <p className="text-muted-foreground">
-                השמות מגיעים מרשומת ההצבעה עצמה ואינם מקושרים לעמודי חברי הכנסת
-                באתר: מזהה חבר הכנסת כאן שייך למרחב מזהים שלישי, שאינו זהה
-                למזהים שבשאר הנתונים. קישור לפי מספר היה משייך הצבעה לאדם הלא נכון.
-              </p>
-              {vote.plenumSessionId ? (
-                <p className="text-muted-foreground">
-                  ישיבת מליאה מס׳ {vote.plenumSessionId.toLocaleString("he-IL")}
+              {vote.session ? (
+                <p>
+                  <Link href={`/plenum/${vote.session.plenumSessionId}`} className="font-medium text-primary hover:underline">
+                    {vote.session.name ?? "הישיבה שבה נערכה ההצבעה"}
+                  </Link>
                 </p>
               ) : null}
               {vote.ordinal != null ? (
                 <p className="text-muted-foreground">הצבעה מס׳ {vote.ordinal.toLocaleString("he-IL")} בישיבה</p>
+              ) : null}
+              {unlinked > 0 ? (
+                <p className="text-muted-foreground">
+                  {unlinked.toLocaleString("he-IL")} מהמצביעים אינם מקושרים לעמוד חבר כנסת. השיוך
+                  נגזר מהשם שברשומת ההצבעה, שכן מזהה חבר הכנסת בטבלת ההצבעות שייך למרחב
+                  מזהים נפרד; שם שאינו מזוהה בוודאות נותר ללא קישור.
+                </p>
               ) : null}
             </CardContent>
           </Card>

@@ -104,6 +104,7 @@ export async function getPlenumSession(plenumSessionId: number) {
         orderBy: [{ ordinal: "asc" }],
         include: { status: true, bill: { include: { status: true } } },
       },
+      votes: { orderBy: [{ ordinal: "asc" }] },
     },
   });
 }
@@ -723,7 +724,67 @@ export async function getVote(voteId: number) {
   return prisma.plenumVote.findUnique({
     where: { voteId },
     include: {
-      results: { orderBy: [{ resultCode: "asc" }, { lastName: "asc" }] },
+      session: { select: { plenumSessionId: true, name: true, startDate: true } },
+      results: {
+        orderBy: [{ resultCode: "asc" }, { lastName: "asc" }],
+        include: {
+          person: {
+            select: { personId: true, firstName: true, lastName: true, factionName: true, bloc: true },
+          },
+        },
+      },
     },
   });
+}
+
+/**
+ * A member's voting record: how they voted overall, and their most recent votes.
+ *
+ * Keyed on the derived `personId`, so it covers only the results whose name
+ * resolved to exactly one person. `getVoteLinkage()` reports that coverage, and
+ * the member page shows it rather than implying the record is complete.
+ */
+export async function getMemberVotingRecord(personId: number, take = 10) {
+  const [byResult, recent, total] = await Promise.all([
+    prisma.plenumVoteResult.groupBy({
+      by: ["resultCode", "resultDesc"],
+      where: { personId },
+      _count: { _all: true },
+      orderBy: { resultCode: "asc" },
+    }),
+    prisma.plenumVoteResult.findMany({
+      where: { personId },
+      take,
+      orderBy: { vote: { voteDateTime: "desc" } },
+      include: {
+        vote: {
+          select: {
+            voteId: true, title: true, subject: true, voteDateTime: true,
+            forCount: true, againstCount: true, abstainCount: true,
+            presentCount: true, totalCount: true,
+          },
+        },
+      },
+    }),
+    prisma.plenumVoteResult.count({ where: { personId } }),
+  ]);
+  return {
+    total,
+    byResult: byResult.map((r) => ({
+      code: r.resultCode,
+      label: r.resultDesc,
+      count: r._count._all,
+    })),
+    recent,
+  };
+}
+
+/** How much of the vote record is attached to a member, for honest labelling. */
+export async function getVoteLinkage() {
+  const [rows, linked, voters] = await Promise.all([
+    prisma.plenumVoteResult.count(),
+    prisma.plenumVoteResult.count({ where: { personId: { not: null } } }),
+    prisma.plenumVoteResult.findMany({ distinct: ["mkId"], select: { mkId: true } }),
+  ]);
+  return { rows, linked, voterIds: voters.length };
 }

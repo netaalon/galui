@@ -275,12 +275,20 @@ table-by-table diff of the same term ingested from each feed.
 (1,953,709 rows, 526,483 in the term). Both are **deterministic** across
 repeated calls, unlike `KNS_PlmSessionItem`.
 
-- **`MkId` is a third person id space.** Not `Person.personId`, not
+- **`MkId` is a third person id space**, and no entity in the feed relates it to
+  `PersonID` — a property scan across all 48 entity types finds `MkId` in
+  `KNS_PlenumVoteResult` and nowhere else. Not `Person.personId`, not
   `Person.siteId`: חנוך דב מלביצקי is 30842, 1105 and 34368 in the three.
-  Joining it by number files one member's votes under another, silently. The
-  feed denormalises `FirstName`/`LastName` onto every result row, which is what
-  the UI uses until the mapping is established. `SessionID` and `ItemID`, by
-  contrast, *were* checked and do match `PlenumSession` and `Bill`.
+  Joining it by number files one member's votes under another, silently.
+  `PlenumVoteResult.personId` is therefore **derived from the name** the feed
+  writes onto each row, by exact match, leaving anything ambiguous unresolved.
+  It measured 149/149 ids: each id carries exactly one name spelling, each
+  spelling resolves to one Person, no Person is claimed twice — and, checked
+  independently of the match, every member's votes fall inside their own term of
+  service (the one apparent exception was a vote at 17:50 on the day a member's
+  term ended). Re-check those numbers rather than trusting them.
+- `SessionID` and `ItemID` do match `PlenumSession` and `Bill`; `SessionID` is
+  now a real relation, and all 7,536 votes resolve to a sitting we hold.
 - **Scope votes by `SessionID`, not by date.** The table has no `KnessetNum`;
   matching against the sittings already ingested returns exactly the same 7,557
   votes as `VoteDateTime ge 2022-11-15` and needs no hard-coded term start.
