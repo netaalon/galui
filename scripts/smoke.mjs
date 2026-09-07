@@ -44,6 +44,7 @@ async function check(path, fn) {
     /\bvoteRows=0(?!\d)/, /\btallied=0(?!\d)/, /\bvoterNames=0(?!\d)/,
     /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/, /\bmemberLinks=0(?!\d)/,
     /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
+    /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -253,6 +254,20 @@ await check("/members/30719", async () => {
   const card = await page.locator('[data-testid="member-votes"]').count();
   const rows = await page.locator('[data-testid="member-votes"] a[href^="/votes/"]').count();
   return `memberVoteCard=${card} memberVoteRows=${rows}`;
+});
+
+// A bill that was voted on must list its votes, and each vote must link back to
+// the bill. 2203819 is the 2023 budget, the most-voted bill of the term.
+await check("/bills/2203819", async () => {
+  const votes = await page.locator('[data-testid="bill-votes"] a[href^="/votes/"]').count();
+  return `billVotes=${votes}`;
+});
+
+await check("/bills/2203819", async () => {
+  const href = await page.locator('[data-testid="bill-votes"] a[href^="/votes/"]').first().getAttribute("href");
+  await page.goto(S + href, { waitUntil: "networkidle" });
+  const back = await page.locator('a[href="/bills/2203819"]').count();
+  return `billLinkOnVote=${back}`;
 });
 
 // Horizontal overflow check on mobile width

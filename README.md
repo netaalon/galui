@@ -191,8 +191,12 @@ Things worth knowing, all verified against the live service:
   the name the feed writes onto each result row, leaving anything ambiguous
   unresolved rather than guessing. It currently resolves 149 of 149 voter ids
   and all 526,483 rows; the ETL prints the yield, and every member's votes were
-  independently checked to fall inside their own term of service. The bill a
-  vote decided (`itemId`) is not wired up yet.
+  independently checked to fall inside their own term of service.
+- **A vote's `itemId` is not always a bill**, and `KNS_PlenumVote` does not say
+  what it is. 774 of the term's votes decided a motion, a statutory action or a
+  plenum item. The type comes from `KNS_PlmSessionItem.ItemTypeID`, so 6,762
+  votes link to a bill across 1,645 bills and the rest are left unlinked rather
+  than guessed at.
 - **Government bills have no MK initiators** — they are submitted by a ministry,
   so `KNS_BillInitiator` is legitimately empty for them (100% of private bills
   have sponsors; only 10% of government bills do). The bill page says so rather

@@ -987,6 +987,41 @@ async function resolveVoteMembers() {
   done(`${safe.length}/${voters.length} voter ids resolved · ${rows.toLocaleString("he-IL")} result rows linked to a member`);
 }
 
+/**
+ * Attach a vote to the bill it decided.
+ *
+ * `ItemID` is whatever the vote was about, and `KNS_PlenumVote` does not say
+ * what that is — no item type, no table name. Treating every `ItemID` as a bill
+ * would be wrong for 774 of this term's votes, which decided motions
+ * ("הצעה לסדר היום"), statutory actions and plenum items.
+ *
+ * The feed does declare the type, in `KNS_PlmSessionItem.ItemTypeID`, so that is
+ * what decides here: link only where the id is typed as a bill (2) and a Bill
+ * row exists. Measured on this term, the two agree exactly — 6,762 votes link,
+ * no id typed as a non-bill collides with a bill id, no id typed as a bill
+ * lacks a Bill row, and the 454 votes with no type information anywhere match
+ * no bill at all. Nothing is being guessed.
+ */
+async function resolveVoteBills() {
+  step("Linking votes to the bills they decided");
+  const linked = await prisma.$executeRaw`
+    UPDATE "PlenumVote"
+       SET "billId" = "itemId"
+     WHERE "itemId" IS NOT NULL
+       AND EXISTS (SELECT 1 FROM "Bill" b WHERE b."billId" = "PlenumVote"."itemId")
+       AND EXISTS (SELECT 1 FROM "PlenumSessionItem" i
+                    WHERE i."itemId" = "PlenumVote"."itemId" AND i."itemTypeId" = ${ITEM_TYPE_BILL})
+       AND NOT EXISTS (SELECT 1 FROM "PlenumSessionItem" i
+                        WHERE i."itemId" = "PlenumVote"."itemId"
+                          AND i."itemTypeId" IS NOT NULL
+                          AND i."itemTypeId" <> ${ITEM_TYPE_BILL})
+  `;
+  const total = await prisma.plenumVote.count();
+  const other = await prisma.plenumVote.count({ where: { billId: null } });
+  await record("resolveVoteBills", total, linked, true, `${linked} of ${total} votes decided a bill`);
+  done(`${linked} votes linked to a bill · ${other} decided something else`);
+}
+
 // ---------------------------------------------------------------------------
 // Written questions (שאילתות)
 // ---------------------------------------------------------------------------
@@ -1295,6 +1330,7 @@ async function main() {
   const voteIds = await ingestPlenumVotes(plenumSessionIds);
   await ingestPlenumVoteResults(voteIds);
   await resolveVoteMembers();
+  await resolveVoteBills();
 
   await ingestGovMinistries();
   const questionIds = await ingestQuestions();
@@ -1323,6 +1359,7 @@ async function main() {
     votes: await prisma.plenumVote.count(),
     voteResults: await prisma.plenumVoteResult.count(),
     votesLinkedToMk: await prisma.plenumVoteResult.count({ where: { personId: { not: null } } }),
+    votesOnBills: await prisma.plenumVote.count({ where: { billId: { not: null } } }),
   };
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log(`\nDone in ${stamp()}.`);

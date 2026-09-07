@@ -147,6 +147,7 @@ export async function getBill(billId: number) {
       committee: true,
       // groupTypeId runs in legislative order, so this reads as progression.
       documents: { orderBy: [{ groupTypeId: "asc" }, { filePath: "asc" }] },
+      votes: { orderBy: [{ voteDateTime: "asc" }, { ordinal: "asc" }] },
       initiators: {
         orderBy: [{ isInitiator: "desc" }, { ordinal: "asc" }],
         include: { person: true },
@@ -705,14 +706,16 @@ export async function listVotes({
 }
 
 export async function getVoteStats() {
-  const [total, earliest, latest, agg] = await Promise.all([
+  const [total, onBills, earliest, latest, agg] = await Promise.all([
     prisma.plenumVote.count(),
+    prisma.plenumVote.count({ where: { billId: { not: null } } }),
     prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "asc" }, select: { voteDateTime: true } }),
     prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "desc" }, select: { voteDateTime: true } }),
     prisma.plenumVote.aggregate({ _sum: { totalCount: true }, _avg: { totalCount: true } }),
   ]);
   return {
     total,
+    onBills,
     earliest: earliest?.voteDateTime ?? null,
     latest: latest?.voteDateTime ?? null,
     ballots: agg._sum.totalCount ?? 0,
@@ -725,6 +728,7 @@ export async function getVote(voteId: number) {
     where: { voteId },
     include: {
       session: { select: { plenumSessionId: true, name: true, startDate: true } },
+      bill: { select: { billId: true, name: true, subTypeDesc: true } },
       results: {
         orderBy: [{ resultCode: "asc" }, { lastName: "asc" }],
         include: {

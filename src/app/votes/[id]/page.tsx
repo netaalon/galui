@@ -106,6 +106,17 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
               <CardTitle className="text-base">על ההצבעה</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
+              {vote.bill ? (
+                <p>
+                  <Link href={`/bills/${vote.bill.billId}`} className="font-medium text-primary hover:underline">
+                    {vote.bill.name ?? "הצעת החוק שבה הוכרע"}
+                  </Link>
+                </p>
+              ) : (
+                <p className="text-muted-foreground">
+                  ההצבעה אינה על הצעת חוק, ולכן אין קישור להצעה.
+                </p>
+              )}
               {vote.session ? (
                 <p>
                   <Link href={`/plenum/${vote.session.plenumSessionId}`} className="font-medium text-primary hover:underline">

@@ -85,9 +85,11 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   entity relates to `personId`, so the link is an exact match on the name the
   feed denormalises onto each result row; an ambiguous name stays null rather
   than being guessed, and the ETL reports the yield. `PlenumVote.plenumSessionId`
-  *is* a real key and a real relation. The bill behind a vote (`itemId`) is not
-  wired up yet. Tallies live on the vote because the results table holds ~526k
-  rows for one term.
+  *is* a real key and a real relation.
+- `PlenumVote.billId` — also derived, and for a different reason: `itemId` is
+  whatever the vote was about, which is a bill only 6,762 times out of 7,536.
+  The type comes from `KNS_PlmSessionItem.ItemTypeID`, never from assuming.
+  Tallies live on the vote because the results table holds ~526k rows per term.
 
 ## Commands
 

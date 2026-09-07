@@ -211,6 +211,7 @@ model Bill {
   sessionItems SessionItem[]
   plenumItems  PlenumSessionItem[]
   documents    BillDocument[]
+  votes        PlenumVote[]
 
   @@index([knessetNum, lastUpdatedDate])
   @@index([publicationDate])
@@ -565,8 +566,12 @@ model PlenumVote {
   voteDateTime    DateTime?
   /// Upstream SessionID.
   plenumSessionId Int?
-  /// Upstream ItemID. Matches Bill for bill votes, but not every item is a bill.
+  /// Upstream ItemID: whatever the vote was about. Not necessarily a bill —
+  /// 774 of this term's votes are motions, statutory actions or plenum items.
   itemId          Int?
+  /// Set only where `itemId` is a bill, per the feed's own typing in
+  /// KNS_PlmSessionItem (ItemTypeID 2). Derived; see resolveVoteBills().
+  billId          Int?
   ordinal         Int?
   methodDesc      String?
   statusDesc      String?
@@ -585,9 +590,11 @@ model PlenumVote {
   lastUpdatedDate DateTime?
 
   session PlenumSession? @relation(fields: [plenumSessionId], references: [plenumSessionId], onDelete: SetNull)
+  bill    Bill?          @relation(fields: [billId], references: [billId], onDelete: SetNull)
   results PlenumVoteResult[]
 
   @@index([voteDateTime])
+  @@index([billId])
   @@index([plenumSessionId])
   @@index([itemId])
 }

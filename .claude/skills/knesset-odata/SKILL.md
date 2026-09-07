@@ -287,8 +287,18 @@ repeated calls, unlike `KNS_PlmSessionItem`.
   independently of the match, every member's votes fall inside their own term of
   service (the one apparent exception was a vote at 17:50 on the day a member's
   term ended). Re-check those numbers rather than trusting them.
-- `SessionID` and `ItemID` do match `PlenumSession` and `Bill`; `SessionID` is
-  now a real relation, and all 7,536 votes resolve to a sitting we hold.
+- `SessionID` is a real key: all 7,536 votes resolve to a sitting we hold, and
+  it is a relation.
+- **`ItemID` is not always a bill, and `KNS_PlenumVote` does not say what it
+  is** — no item type, no table name. 774 of this term's votes decided a motion
+  ("הצעה לסדר היום"), a statutory action or a plenum item. Take the type from
+  `KNS_PlmSessionItem.ItemTypeID` (2 = bill) rather than assuming, which is what
+  `resolveVoteBills()` does. On this term the two sources agree exactly: 6,762
+  votes link to a bill across 1,645 bills, no id typed as a non-bill collides
+  with a bill id, no id typed as a bill lacks a Bill row, and the 454 votes with
+  no type information anywhere match no bill at all. The result is plausible on
+  its face — the most-voted bills are the 2023 budget (212), the 2024
+  supplementary budget (157) and Basic Law: The Judiciary amendment 3 (148).
 - **Scope votes by `SessionID`, not by date.** The table has no `KnessetNum`;
   matching against the sittings already ingested returns exactly the same 7,557
   votes as `VoteDateTime ge 2022-11-15` and needs no hard-coded term start.
