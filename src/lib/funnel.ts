@@ -8,14 +8,33 @@
  * Kept out of `queries.ts` so the client chart can import the labels without
  * pulling Prisma — the same reason the sort constants live on their own.
  */
+/**
+ * Two families of status make up these rungs, and they mean different things:
+ *
+ * - `הונחה על שולחן הכנסת ל־X` — the text is *laid before the House*, one per
+ *   reading (104 preliminary, 141 first, 130 second-third, 131 third).
+ * - `לדיון במליאה לקראת X` — the item is *on the plenum agenda* for that
+ *   reading (111, 114, 117; 150 for the preliminary).
+ *
+ * Laying comes first: of 607 bills holding both 141 and 111, 480 were laid
+ * strictly earlier and 127 in the same sitting, and none the other way round.
+ * They are not redundant — 74 bills were laid for a first reading and never
+ * scheduled for one.
+ *
+ * **No status means "passed the first reading."** Of all 35 bill statuses only
+ * 118 records a pass, at third reading; committee approvals exist but the first
+ * and second readings leave no pass or fail. So a rung here says a reading was
+ * *reached*, never that it carried, and the labels say so — the outcome lives in
+ * KNS_PlenumVote, which has a vote for 595 of those 607 bills.
+ */
 export const FUNNEL_STAGES = [
-  "הונחה על שולחן הכנסת",
-  "דיון מוקדם",
+  "הונחה לדיון מוקדם",
+  "עלתה לדיון מוקדם",
   "ועדה לקראת קריאה ראשונה",
-  "קריאה ראשונה",
+  "נקבעה לקריאה ראשונה",
   "ועדה לקראת שנייה-שלישית",
-  "קריאה שנייה-שלישית",
-  "התקבלה",
+  "נקבעה לקריאה שנייה-שלישית",
+  "התקבלה בקריאה שלישית",
 ] as const;
 
 /**
@@ -49,11 +68,11 @@ export const STATUS_RUNG: Record<number, number> = {
  */
 export const GOV_STAGES = [
   "הונחה לקריאה ראשונה",
-  "קריאה ראשונה",
+  "נקבעה לקריאה ראשונה",
   "ועדה לקראת שנייה-שלישית",
   "הונחה לקריאה שנייה-שלישית",
-  "קריאה שנייה-שלישית",
-  "התקבלה",
+  "נקבעה לקריאה שנייה-שלישית",
+  "התקבלה בקריאה שלישית",
 ] as const;
 
 export const GOV_STATUS_RUNG: Record<number, number> = {

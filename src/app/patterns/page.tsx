@@ -155,6 +155,14 @@ export default async function PatternsPage({
 
             <BillFunnel stages={funnelStages} series={funnelSeries} scale={scale} />
 
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              „הונחה” פירושה שנוסח ההצעה הונח על שולחן הכנסת ועומד לרשות החברים,
+              ו„נקבעה” פירושה שהיא עלתה לסדר היום של המליאה לאותה קריאה. השלבים
+              מציינים שההצעה <em>הגיעה</em> לקריאה, לא שהקריאה עברה: מבין 35 הסטטוסים
+              של הצעות חוק רק אחד מתעד קבלה, בקריאה השלישית. תוצאות הקריאות האחרות
+              נמצאות בהצבעות עצמן.
+            </p>
+
             {isOrigin ? (
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                 מכאן ואילך התמונה מתהפכת. מבין ההצעות שהגיעו לקריאה ראשונה התקבלו{" "}

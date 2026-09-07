@@ -53,6 +53,7 @@ async function check(path, fn) {
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
     /\boriginLines=[01](?!\d)/, /\boriginStages=[0-57-9](?!\d)/, /\bladderSwitched=false\b/,
+    /\bstageWordingHonest=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
@@ -154,7 +155,17 @@ await check("/patterns", async () => {
     .evaluateAll((ns) => ns.map((n) => Number(n.getAttribute("cy"))));
   // A falling series plots downward, so cy must be non-decreasing.
   const monotonic = ys.every((y, i) => i === 0 || y >= ys[i - 1] - 0.5);
-  return `funnelLines=${lines} funnelStages=${stages} funnelMonotonic=${monotonic}`;
+
+  // No status in the feed records passing a first or second reading — only the
+  // third. A rung label must therefore say a reading was reached, never that it
+  // carried, and the card must explain the הונחה/נקבעה distinction.
+  const labels = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
+  const card = await page.locator('[data-testid="pattern-funnel"]').innerText();
+  const bare = labels.some((l) => /^קריאה (ראשונה|שנייה)/.test(l));
+  const honest = !bare && card.includes("הונחה") && card.includes("נקבעה");
+  return `funnelLines=${lines} funnelStages=${stages} funnelMonotonic=${monotonic} stageWordingHonest=${honest}`;
 });
 
 await check("/patterns?funnel=bloc", async () => {
@@ -218,7 +229,7 @@ await check("/patterns?funnel=origin&scale=count", async () => {
   const xs = await page
     .locator(".recharts-cartesian-axis-tick-value")
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
-  const switched = !xs.includes("דיון מוקדם") && xs.includes("הונחה לקריאה שנייה-שלישית");
+  const switched = !xs.some((x) => x.includes("דיון מוקדם")) && xs.includes("הונחה לקריאה שנייה-שלישית");
   return `originLines=${lines} originStages=${xs.length} ladderSwitched=${switched}`;
 });
 
