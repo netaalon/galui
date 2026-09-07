@@ -56,6 +56,26 @@ primary key.
 | `npm run typecheck` / `npm run lint` | Checks |
 | `npm run smoke` | Browser smoke test (app must be running) |
 
+## Findings
+
+`/patterns` states four measures of the same thing — the coalition decides what
+reaches a vote and what dies there:
+
+- Of **4,777** votes where the two blocs took opposite positions, the coalition's
+  position prevailed in **99.9%**. The opposition won 8, half of which were the
+  coalition failing to turn up; **4** are defeats with the government present.
+- A coalition member's private bill that fails is voted down by their **own
+  side** in 878 of 881 cases. An opposition member's is voted down by the other
+  side in all 405.
+- **4,705 of 7,587** bills appeared once at most in a committee or the plenum and
+  were never taken up again. The highest-volume sponsors are all opposition
+  members, the highest converters all coalition members.
+- **19** votes were decided by two votes or fewer, and there is not one tie in
+  the whole term.
+
+They are on one page deliberately: read alone, the bills that never moved look
+like a measure of members' sincerity rather than of who controls the agenda.
+
 ## Data architecture
 
 The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:

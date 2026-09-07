@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Gavel, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users, Vote } from "lucide-react";
+import { ChartNoAxesCombined, FileText, Gavel, Landmark, LayoutDashboard, MessageCircleQuestion, Speech, Users, Vote } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
@@ -14,6 +14,7 @@ const links = [
   { href: "/plenum", label: "מליאה", icon: Speech },
   { href: "/committees", label: "ועדות", icon: Gavel },
   { href: "/votes", label: "הצבעות", icon: Vote },
+  { href: "/patterns", label: "דפוסים", icon: ChartNoAxesCombined },
   { href: "/questions", label: "שאילתות", icon: MessageCircleQuestion },
   { href: "/members", label: "חברי כנסת", icon: Users },
 ] as const;
@@ -29,7 +30,13 @@ export function Navbar() {
           <span className="text-lg tracking-tight">גלוי</span>
         </Link>
 
-        <nav className="flex items-center gap-0.5 sm:gap-1" aria-label="ניווט ראשי">
+        {/* Eight icon-only links do not fit a 390px viewport, and a nav that
+            widens the header makes the whole page scroll sideways. Let the nav
+            itself scroll instead — the rule in the hebrew-and-rtl skill. */}
+        <nav
+          className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] sm:gap-1 [&::-webkit-scrollbar]:hidden"
+          aria-label="ניווט ראשי"
+        >
           {links.map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
             return (

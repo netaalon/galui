@@ -46,6 +46,7 @@ up without a rebuild.
 | `src/lib/*-sort.ts` | Sort/filter constants shared with client controls — kept out of `queries.ts` on purpose |
 | `src/lib/format.ts` | Hebrew/UTC formatting, name and count helpers |
 | `src/lib/factions.ts` | The hand-maintained coalition/opposition map |
+| `src/app/patterns/page.tsx` | Aggregate findings over the vote record — see the note below before adding one |
 | `src/app/**/page.tsx` | Server components; await `params`, call queries, render |
 | `src/components/` | Shared presentational pieces; `ui/` is shadcn, do not hand-edit |
 
@@ -98,6 +99,25 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   sitting and dated at that sitting's first vote so they interleave with the
   readings; the node caps its list and links the sitting for the rest, the same
   way document lists are capped.
+
+## Presenting an aggregate finding
+
+`/patterns` states four measures that are all the same finding: the coalition
+decides what reaches a vote and what dies there. They are on one page **on
+purpose**, because each is misread alone — the 4,705 bills that never moved look
+like a measure of members' sincerity until you notice the highest-volume tablers
+are all opposition members who cannot pass anything without coalition consent,
+and the highest converters are all coalition members.
+
+Two rules for anything added there:
+
+- **Give the base rate.** 65% of a member's private bills going nowhere is the
+  median, not an indictment. A figure without its baseline invites the reader to
+  infer motive from what is actually structural.
+- **Separate "lost" from "did not turn up."** Half the opposition's head-to-head
+  wins are votes where 5 to 21 coalition members were present out of ~68. Only
+  4 of 4,777 divided votes are defeats with the government in the room, and
+  conflating the two would overstate the opposition's record twofold.
 
 ## Commands
 

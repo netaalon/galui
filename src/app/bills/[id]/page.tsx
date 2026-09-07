@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, fullName } from "@/lib/format";
-import { getBill } from "@/lib/queries";
+import { getBill, getBillOwnBlocOpposition } from "@/lib/queries";
 import { buildBillTimeline } from "@/lib/timeline";
 import { sourceRecordUrl } from "@/lib/odata-link";
 
@@ -27,6 +27,11 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
 
   const bill = await getBill(billId);
   if (!bill) notFound();
+
+  // Where a private bill was voted down, say whose votes did it. For a
+  // coalition member's bill that is almost always their own side: 878 of 881
+  // such defeats across the term.
+  const ownBloc = await getBillOwnBlocOpposition(billId);
 
   const events = buildBillTimeline(bill);
   // Published in ספר החוקים, i.e. it became law. This maps exactly onto the
@@ -181,6 +186,26 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
               )}
             </CardContent>
           </Card>
+
+          {ownBloc && ownBloc.own * 2 > ownBloc.total ? (
+            <Card data-testid="bill-own-bloc">
+              <CardHeader>
+                <CardTitle>מי הפיל את ההצעה</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm leading-relaxed text-muted-foreground">
+                בהצבעה שבה נפלה,{" "}
+                <Link href={`/votes/${ownBloc.voteId}`} className="font-medium text-primary hover:underline">
+                  {ownBloc.own} מתוך {ownBloc.total} המתנגדים
+                </Link>{" "}
+                היו מ{ownBloc.sponsorBloc === "coalition" ? "הקואליציה" : "האופוזיציה"} — אותו גוש
+                שממנו באה היוזמת. ראו{" "}
+                <Link href="/patterns" className="text-primary hover:underline">
+                  דפוסי חקיקה והצבעה
+                </Link>
+                .
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

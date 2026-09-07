@@ -944,3 +944,222 @@ export async function getVoteLinkage() {
   ]);
   return { rows, linked, voterIds: voters.length };
 }
+
+// ---------------------------------------------------------------------------
+// Agenda control
+//
+// These four measures are one finding from different angles: the coalition
+// decides what reaches the floor and what dies there, including for its own
+// members. They are deliberately presented together, because separately each
+// invites a wrong reading — the bill graveyard in particular looks like a
+// measure of sincerity until you notice the highest-volume tablers are all
+// opposition members who cannot pass anything without coalition consent.
+// ---------------------------------------------------------------------------
+
+/** Head-to-head votes: what happens when the two blocs disagree. */
+export async function getBlocHeadToHead() {
+  const rows = await prisma.$queryRaw<Array<{ decided: number; coalitionWon: number; oppositionWon: number }>>`
+    WITH pos AS (
+      SELECT r."voteId", p."bloc",
+             SUM(CASE WHEN r."resultCode" = 7 THEN 1 ELSE 0 END) AS f,
+             SUM(CASE WHEN r."resultCode" = 8 THEN 1 ELSE 0 END) AS a
+        FROM "PlenumVoteResult" r
+        JOIN "Person" p ON p."personId" = r."personId"
+       WHERE r."resultCode" IN (7, 8) AND p."bloc" IS NOT NULL
+       GROUP BY r."voteId", p."bloc"
+      HAVING f + a >= 5
+    ),
+    sides AS (
+      SELECT c."voteId",
+             CASE WHEN c.f > c.a THEN 7 WHEN c.a > c.f THEN 8 END AS coal,
+             CASE WHEN o.f > o.a THEN 7 WHEN o.a > o.f THEN 8 END AS opp,
+             v."forCount", v."againstCount",
+             c.f + c.a AS coalVoted
+        FROM pos c
+        JOIN pos o ON o."voteId" = c."voteId" AND o."bloc" = 'opposition'
+        JOIN "PlenumVote" v ON v."voteId" = c."voteId"
+       WHERE c."bloc" = 'coalition'
+    )
+    SELECT COUNT(*) AS decided,
+           SUM(CASE WHEN (CASE WHEN "forCount" > "againstCount" THEN 7 ELSE 8 END) = coal THEN 1 ELSE 0 END) AS "coalitionWon",
+           SUM(CASE WHEN (CASE WHEN "forCount" > "againstCount" THEN 7 ELSE 8 END) = opp THEN 1 ELSE 0 END) AS "oppositionWon"
+      FROM sides
+     WHERE coal IS NOT NULL AND opp IS NOT NULL AND coal <> opp AND "forCount" <> "againstCount"
+  `;
+  const r = rows[0];
+  return { decided: Number(r.decided), coalitionWon: Number(r.coalitionWon), oppositionWon: Number(r.oppositionWon) };
+}
+
+/**
+ * The votes the government lost while present.
+ *
+ * Turnout matters: half the opposition's head-to-head wins are the coalition
+ * failing to show up, which is a different thing from being outvoted. The
+ * threshold keeps only the votes where it turned out and still lost.
+ */
+export async function getGovernmentDefeats(minCoalitionVoting = 30) {
+  const rows = await prisma.$queryRaw<
+    Array<{ voteId: number; voteDateTime: string | null; forCount: number; againstCount: number; totalCount: number; methodDesc: string | null; coalVoted: number; billId: number | null; title: string | null }>
+  >`
+    WITH pos AS (
+      SELECT r."voteId", p."bloc",
+             SUM(CASE WHEN r."resultCode" = 7 THEN 1 ELSE 0 END) AS f,
+             SUM(CASE WHEN r."resultCode" = 8 THEN 1 ELSE 0 END) AS a
+        FROM "PlenumVoteResult" r
+        JOIN "Person" p ON p."personId" = r."personId"
+       WHERE r."resultCode" IN (7, 8) AND p."bloc" IS NOT NULL
+       GROUP BY r."voteId", p."bloc"
+    )
+    SELECT v."voteId", v."voteDateTime", v."forCount", v."againstCount", v."totalCount",
+           v."methodDesc", (c.f + c.a) AS "coalVoted", v."billId", v."title"
+      FROM pos c
+      JOIN pos o ON o."voteId" = c."voteId" AND o."bloc" = 'opposition'
+      JOIN "PlenumVote" v ON v."voteId" = c."voteId"
+     WHERE c."bloc" = 'coalition'
+       AND c.f + c.a >= ${minCoalitionVoting}
+       AND o.f + o.a >= 5
+       AND (CASE WHEN c.f > c.a THEN 7 WHEN c.a > c.f THEN 8 END) IS NOT NULL
+       AND (CASE WHEN o.f > o.a THEN 7 WHEN o.a > o.f THEN 8 END) IS NOT NULL
+       AND (CASE WHEN c.f > c.a THEN 7 ELSE 8 END) <> (CASE WHEN o.f > o.a THEN 7 ELSE 8 END)
+       AND v."forCount" <> v."againstCount"
+       AND (CASE WHEN v."forCount" > v."againstCount" THEN 7 ELSE 8 END)
+           <> (CASE WHEN c.f > c.a THEN 7 ELSE 8 END)
+     ORDER BY v."voteDateTime"
+  `;
+  return rows.map((r) => ({
+    ...r,
+    voteDateTime: r.voteDateTime ? new Date(r.voteDateTime) : null,
+    coalVoted: Number(r.coalVoted),
+  }));
+}
+
+/** Who supplies the votes that sink a private bill. */
+export async function getPrivateBillKillers() {
+  const rows = await prisma.$queryRaw<Array<{ sponsorBloc: string; votes: number; killedByOwn: number; avgOwnShare: number }>>`
+    WITH sponsor AS (
+      SELECT bi."billId", MIN(bi."ordinal") AS o FROM "BillInitiator" bi GROUP BY bi."billId"
+    ),
+    lead AS (
+      SELECT s."billId", p."bloc" AS "sponsorBloc"
+        FROM sponsor s
+        JOIN "BillInitiator" bi ON bi."billId" = s."billId" AND bi."ordinal" = s.o
+        JOIN "Person" p ON p."personId" = bi."personId"
+       WHERE p."bloc" IS NOT NULL
+    ),
+    failed AS (
+      SELECT v."voteId", l."sponsorBloc"
+        FROM "PlenumVote" v
+        JOIN "Bill" b ON b."billId" = v."billId"
+        JOIN lead l ON l."billId" = v."billId"
+       WHERE v."totalCount" >= 20 AND v."againstCount" > v."forCount" AND b."subTypeDesc" = 'פרטית'
+    ),
+    against AS (
+      SELECT f."voteId", f."sponsorBloc",
+             SUM(CASE WHEN p."bloc" = f."sponsorBloc" THEN 1 ELSE 0 END) AS own,
+             COUNT(*) AS total
+        FROM failed f
+        JOIN "PlenumVoteResult" r ON r."voteId" = f."voteId" AND r."resultCode" = 8
+        JOIN "Person" p ON p."personId" = r."personId" AND p."bloc" IS NOT NULL
+       GROUP BY f."voteId", f."sponsorBloc"
+    )
+    SELECT "sponsorBloc", COUNT(*) AS votes,
+           SUM(CASE WHEN own * 2 > total THEN 1 ELSE 0 END) AS "killedByOwn",
+           ROUND(AVG(CAST(own AS REAL) / total) * 100, 1) AS "avgOwnShare"
+      FROM against WHERE total >= 10 GROUP BY "sponsorBloc"
+  `;
+  return rows.map((r) => ({ ...r, votes: Number(r.votes), killedByOwn: Number(r.killedByOwn) }));
+}
+
+/**
+ * Private bills by sponsor, and how far they got.
+ *
+ * `stalled` counts bills with at most one recorded appearance anywhere — tabled
+ * and never taken up again. The median for a member with 20+ such bills is 65%,
+ * so a high figure is the norm rather than a mark against anyone; the point of
+ * showing volume beside conversion is that the two sort by bloc, not by member.
+ */
+export async function getSponsorThroughput(minBills = 20) {
+  const rows = await prisma.$queryRaw<
+    Array<{ personId: number; firstName: string | null; lastName: string | null; bloc: string | null; tabled: number; stalled: number; passed: number }>
+  >`
+    WITH ev AS (
+      SELECT b."billId", b."statusId",
+             (SELECT COUNT(*) FROM "PlenumSessionItem" pi WHERE pi."billId" = b."billId")
+           + (SELECT COUNT(*) FROM "SessionItem" si WHERE si."billId" = b."billId") AS n
+        FROM "Bill" b WHERE b."subTypeDesc" = 'פרטית'
+    )
+    SELECT p."personId", p."firstName", p."lastName", p."bloc",
+           COUNT(*) AS tabled,
+           SUM(CASE WHEN e.n <= 1 THEN 1 ELSE 0 END) AS stalled,
+           SUM(CASE WHEN s."desc" = 'התקבלה בקריאה שלישית' THEN 1 ELSE 0 END) AS passed
+      FROM "BillInitiator" bi
+      JOIN ev e ON e."billId" = bi."billId"
+      JOIN "Person" p ON p."personId" = bi."personId"
+      LEFT JOIN "Status" s ON s."statusId" = e."statusId"
+     WHERE bi."ordinal" = 1 AND p."isMk" = 1
+     GROUP BY p."personId" HAVING tabled >= ${minBills}
+     ORDER BY tabled DESC
+  `;
+  return rows.map((r) => ({ ...r, tabled: Number(r.tabled), stalled: Number(r.stalled), passed: Number(r.passed) }));
+}
+
+/** How far private bills get overall, so a member's figure has a baseline. */
+export async function getBillProgressBaseline() {
+  const rows = await prisma.$queryRaw<Array<{ bucket: string; n: number }>>`
+    WITH ev AS (
+      SELECT b."billId",
+             (SELECT COUNT(*) FROM "PlenumSessionItem" pi WHERE pi."billId" = b."billId")
+           + (SELECT COUNT(*) FROM "SessionItem" si WHERE si."billId" = b."billId") AS n
+        FROM "Bill" b
+    )
+    SELECT CASE WHEN n = 0 THEN 'none' WHEN n = 1 THEN 'one' WHEN n <= 4 THEN 'few' ELSE 'many' END AS bucket,
+           COUNT(*) AS n
+      FROM ev GROUP BY 1
+  `;
+  const by = new Map(rows.map((r) => [r.bucket, Number(r.n)]));
+  const total = [...by.values()].reduce((a, b) => a + b, 0);
+  return { total, none: by.get("none") ?? 0, one: by.get("one") ?? 0, few: by.get("few") ?? 0, many: by.get("many") ?? 0 };
+}
+
+/** Votes decided by a hair. */
+export async function getClosestVotes(maxMargin = 2, minTurnout = 20, take = 20) {
+  return prisma.plenumVote.findMany({
+    where: { totalCount: { gte: minTurnout } },
+    orderBy: [{ voteDateTime: "desc" }],
+    include: { bill: { select: { billId: true, name: true } } },
+  }).then((all) =>
+    all
+      .filter((v) => Math.abs(v.forCount - v.againstCount) <= maxMargin)
+      .sort((a, b) => Math.abs(a.forCount - a.againstCount) - Math.abs(b.forCount - b.againstCount))
+      .slice(0, take),
+  );
+}
+
+/** For one bill: did its own sponsor's bloc supply the votes that sank it? */
+export async function getBillOwnBlocOpposition(billId: number) {
+  const rows = await prisma.$queryRaw<Array<{ voteId: number; own: number; total: number; sponsorBloc: string }>>`
+    WITH sponsor AS (
+      SELECT MIN("ordinal") AS o FROM "BillInitiator" WHERE "billId" = ${billId}
+    ),
+    lead AS (
+      SELECT p."bloc" AS "sponsorBloc"
+        FROM "BillInitiator" bi, sponsor s
+        JOIN "Person" p ON p."personId" = bi."personId"
+       WHERE bi."billId" = ${billId} AND bi."ordinal" = s.o AND p."bloc" IS NOT NULL
+    )
+    SELECT v."voteId", l."sponsorBloc",
+           SUM(CASE WHEN p."bloc" = l."sponsorBloc" THEN 1 ELSE 0 END) AS own,
+           COUNT(*) AS total
+      FROM "PlenumVote" v, lead l
+      JOIN "PlenumVoteResult" r ON r."voteId" = v."voteId" AND r."resultCode" = 8
+      JOIN "Person" p ON p."personId" = r."personId" AND p."bloc" IS NOT NULL
+     WHERE v."billId" = ${billId} AND v."againstCount" > v."forCount" AND v."totalCount" >= 20
+     GROUP BY v."voteId", l."sponsorBloc"
+     HAVING total >= 10
+     ORDER BY CAST(own AS REAL) / total DESC
+     LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { voteId: r.voteId, own: Number(r.own), total: Number(r.total), sponsorBloc: r.sponsorBloc };
+}

@@ -47,6 +47,8 @@ async function check(path, fn) {
     /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
     /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/, /\brosterMembers=0(?!\d)/,
     /\bsummaryExplained=false\b/, /\benactedText=0(?!\d)/,
+    /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
+    /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
     /\bseatDupes=[1-9]/,
@@ -129,6 +131,28 @@ await check("/bills/2229019", async () => {
 await check("/members/30719", async () => {
   const leadBadges = (await page.locator("body").innerText()).split("יוזם/ת ראשי/ת").length - 1;
   return `member leadBadges=${leadBadges}`;
+});
+
+// The patterns page states four measures of the same finding. The assertion
+// that matters is the asymmetry: a coalition member's failed bill is killed by
+// their own side, an opposition member's is not. If that ever inverts, either
+// the politics changed or the bloc data broke.
+await check("/patterns", async () => {
+  const defeats = await page.locator('[data-testid="pattern-headtohead"] a[href^="/votes/"]').count();
+  const closeRows = await page.locator('[data-testid="pattern-close"] li').count();
+  const sponsorRows = await page.locator('[data-testid="pattern-throughput"] a[href^="/members/"]').count();
+  const killers = await page.locator('[data-testid="pattern-killers"]').innerText();
+  // Coalition line quotes a near-total share, opposition line a near-zero one.
+  const coal = killers.match(/מהקואליציה[\s\S]*?— ([\d.]+)%/);
+  const opp = killers.match(/בממוצע ([\d.]+)% מהמתנגדים היו מאותו\s+גוש — כלומר/);
+  const asym = !!coal && !!opp && Number(coal[1]) > 90 && Number(opp[1]) < 10;
+  return `defeatRows=${defeats} closeRows=${closeRows} sponsorRows=${sponsorRows} killerAsymmetry=${asym}`;
+});
+
+// A failed private bill says whose votes sank it.
+await check("/bills/2197256", async () => {
+  const note = await page.locator('[data-testid="bill-own-bloc"]').count();
+  return `ownBlocNote=${note}`;
 });
 
 // A bill that became law but has no summary must say so. Rendering nothing is
