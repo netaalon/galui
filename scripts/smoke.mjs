@@ -49,10 +49,10 @@ async function check(path, fn) {
     /\bsummaryExplained=false\b/, /\benactedText=0(?!\d)/,
     /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
-    /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-8](?!\d)/,
+    /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
-    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-57-9](?!\d)/, /\bisSuffix=false\b/, /\bladderSwitched=false\b/,
+    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-35-9](?!\d)/, /\bisSuffix=false\b/, /\bladderSwitched=false\b/,
     /\bstageWordingHonest=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
@@ -164,7 +164,7 @@ await check("/patterns", async () => {
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
   const card = await page.locator('[data-testid="pattern-funnel"]').innerText();
   const bare = labels.some((l) => /^קריאה (ראשונה|שנייה)/.test(l));
-  const honest = !bare && card.includes("הונחה") && card.includes("נקבעה");
+  const honest = !bare && card.includes("הונחה") && /נקבע/.test(card);
   return `funnelLines=${lines} funnelStages=${stages} funnelMonotonic=${monotonic} stageWordingHonest=${honest}`;
 });
 

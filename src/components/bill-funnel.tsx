@@ -73,14 +73,32 @@ function sqrtTicks(max: number, count = 7): number[] {
   return [...out].filter((v) => v > 0 || v === 0).sort((a, b) => a - b);
 }
 
+/** Evenly spaced round ticks, for a range that does not need rescaling. */
+function linearTicks(max: number, count = 6): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0];
+  const raw = max / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = ([1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((m) => raw <= m * mag) ?? 10) * mag;
+  const out: number[] = [];
+  for (let v = 0; v <= max + step; v += step) out.push(v);
+  return out;
+}
+
 export function BillFunnel({
   stages,
   series,
   scale,
+  /**
+   * Force a linear count axis. Square root exists to rescue a 33x drop from
+   * baseline to tail; where the whole range is 638 down to 205 it distorts a
+   * chart that has nothing wrong with it.
+   */
+  linearCounts = false,
 }: {
   stages: string[];
   series: FunnelSeries[];
   scale: FunnelScale;
+  linearCounts?: boolean;
 }) {
   // One row per stage, one key per series — the shape Recharts wants.
   const rows = stages.map((stage, i) => {
@@ -93,7 +111,13 @@ export function BillFunnel({
   });
 
   const max = Math.max(1, ...series.flatMap((s) => s.counts));
-  const ticks = scale === "count" ? sqrtTicks(max) : [0, 20, 40, 60, 80, 100];
+  const useSqrt = scale === "count" && !linearCounts;
+  const ticks =
+    scale === "share"
+      ? [0, 20, 40, 60, 80, 100]
+      : useSqrt
+        ? sqrtTicks(max)
+        : linearTicks(max);
 
   return (
     // Recharts lays its axes out physically, so the plot stays LTR and the
@@ -122,7 +146,7 @@ export function BillFunnel({
             // It also plots zero, which log cannot. רע"ם reaches the last two
             // rungs 0 times, and on a log axis that dropped the series and left
             // the entire party view blank.
-            scale={scale === "count" ? "sqrt" : "linear"}
+            scale={useSqrt ? "sqrt" : "linear"}
             domain={scale === "count" ? [0, ticks[ticks.length - 1]] : [0, 100]}
             ticks={ticks}
             // Without this Recharts thins the labels on its own and drops

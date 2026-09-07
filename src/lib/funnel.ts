@@ -18,8 +18,13 @@
  *
  * Laying comes first: of 607 bills holding both 141 and 111, 480 were laid
  * strictly earlier and 127 in the same sitting, and none the other way round.
- * They are not redundant — 74 bills were laid for a first reading and never
- * scheduled for one.
+ *
+ * The two are separate rungs **only for the preliminary reading**, where the
+ * gap is the largest cliff in the process: 6,915 private bills laid against
+ * 1,636 that reached the plenum, a 76% drop. At the first and second-third
+ * readings almost nothing is lost between laying and scheduling — 7% and 4% for
+ * private bills, 7% and 3% for government ones — so those pairs share a rung
+ * labelled for the laying, and two rungs of visual noise are gone.
  *
  * **No status means "passed the first reading."** Of all 35 bill statuses only
  * 118 records a pass, at third reading; committee approvals exist but the first
@@ -32,10 +37,8 @@ export const FUNNEL_STAGES = [
   "עלתה לדיון מוקדם",
   "ועדה לקראת קריאה ראשונה",
   "הונחה לקריאה ראשונה",
-  "נקבעה לקריאה ראשונה",
   "ועדה לקראת שנייה-שלישית",
   "הונחה לקריאה שנייה-שלישית",
-  "נקבעה לקריאה שנייה-שלישית",
   "התקבלה בקריאה שלישית",
 ] as const;
 
@@ -50,18 +53,16 @@ export const FUNNEL_STAGES = [
  */
 export const STATUS_RUNG: Record<number, number> = {
   104: 0, // הונחה על שולחן הכנסת לדיון מוקדם
-  150: 1, // במליאה לדיון מוקדם
+  150: 1, // במליאה לדיון מוקדם — kept separate, see the note above
   106: 2, 142: 2, 101: 2, 108: 2, 109: 2, 167: 2, // committee, before first reading
-  141: 3, // הונחה על שולחן הכנסת לקריאה ראשונה
-  111: 4, // לדיון במליאה לקראת הקריאה הראשונה
-  113: 5, 178: 5, 179: 5, // committee, before second-third
-  130: 6, 131: 6, // הונחה על שולחן הכנסת לקריאה שנייה-שלישית / שלישית
-  114: 7, 117: 7, // לדיון במליאה לקראת קריאה שנייה-שלישית / שלישית
-  118: 8, // התקבלה בקריאה שלישית
+  141: 3, 111: 3, // laid for, and scheduled for, the first reading
+  113: 4, 178: 4, 179: 4, // committee, before second-third
+  130: 5, 131: 5, 114: 5, 117: 5, // laid for, and scheduled for, second-third
+  118: 6, // התקבלה בקריאה שלישית
 };
 
 /**
- * The government ladder: exactly rungs 3-8 of the private one, same names.
+ * The government ladder: exactly rungs 3-6 of the private one, same names.
  *
  * What government bills skip is the **preliminary round** — its tabling (104,
  * 6,804 private bills against 0 government) and its plenum debate (150, 1,525
@@ -78,20 +79,16 @@ export const STATUS_RUNG: Record<number, number> = {
  */
 export const GOV_STAGES = [
   "הונחה לקריאה ראשונה",
-  "נקבעה לקריאה ראשונה",
   "ועדה לקראת שנייה-שלישית",
   "הונחה לקריאה שנייה-שלישית",
-  "נקבעה לקריאה שנייה-שלישית",
   "התקבלה בקריאה שלישית",
 ] as const;
 
 export const GOV_STATUS_RUNG: Record<number, number> = {
-  141: 0,
-  111: 1,
-  113: 2, 178: 2, 179: 2,
-  130: 3, 131: 3,
-  114: 4, 117: 4,
-  118: 5,
+  141: 0, 111: 0,
+  113: 1, 178: 1, 179: 1,
+  130: 2, 131: 2, 114: 2, 117: 2,
+  118: 3,
 };
 
 export type FunnelView = "total" | "bloc" | "faction" | "origin";
