@@ -49,10 +49,10 @@ async function check(path, fn) {
     /\bsummaryExplained=false\b/, /\benactedText=0(?!\d)/,
     /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
-    /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
+    /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-8](?!\d)/,
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
-    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-57-9](?!\d)/, /\bladderSwitched=false\b/,
+    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-57-9](?!\d)/, /\bisSuffix=false\b/, /\bladderSwitched=false\b/,
     /\bstageWordingHonest=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
@@ -230,7 +230,17 @@ await check("/patterns?funnel=origin&scale=count", async () => {
     .locator(".recharts-cartesian-axis-tick-value")
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
   const switched = !xs.some((x) => x.includes("דיון מוקדם")) && xs.includes("הונחה לקריאה שנייה-שלישית");
-  return `originLines=${lines} originStages=${xs.length} ladderSwitched=${switched}`;
+
+  // The government path is the tail of the private one, same stage names, so
+  // every government stage must appear on the private axis. If they drift apart
+  // the two views stop being comparable and "government bills skip tabling"
+  // becomes a plausible misreading again.
+  await page.goto(S + "/patterns?funnel=total", { waitUntil: "networkidle" });
+  const priv = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
+  const isSuffix = xs.every((x) => priv.includes(x)) && priv.slice(-xs.length).join("|") === xs.join("|");
+  return `originLines=${lines} originStages=${xs.length} ladderSwitched=${switched} isSuffix=${isSuffix}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.

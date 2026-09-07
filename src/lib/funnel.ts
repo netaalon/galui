@@ -31,8 +31,10 @@ export const FUNNEL_STAGES = [
   "הונחה לדיון מוקדם",
   "עלתה לדיון מוקדם",
   "ועדה לקראת קריאה ראשונה",
+  "הונחה לקריאה ראשונה",
   "נקבעה לקריאה ראשונה",
   "ועדה לקראת שנייה-שלישית",
+  "הונחה לקריאה שנייה-שלישית",
   "נקבעה לקריאה שנייה-שלישית",
   "התקבלה בקריאה שלישית",
 ] as const;
@@ -50,21 +52,29 @@ export const STATUS_RUNG: Record<number, number> = {
   104: 0, // הונחה על שולחן הכנסת לדיון מוקדם
   150: 1, // במליאה לדיון מוקדם
   106: 2, 142: 2, 101: 2, 108: 2, 109: 2, 167: 2, // committee, before first reading
-  141: 3, 111: 3, // tabled for / debated at first reading
-  113: 4, 178: 4, 179: 4, // committee, before second-third
-  130: 5, 114: 5, 131: 5, 117: 5, // tabled for / debated at second-third
-  118: 6, // התקבלה בקריאה שלישית
+  141: 3, // הונחה על שולחן הכנסת לקריאה ראשונה
+  111: 4, // לדיון במליאה לקראת הקריאה הראשונה
+  113: 5, 178: 5, 179: 5, // committee, before second-third
+  130: 6, 131: 6, // הונחה על שולחן הכנסת לקריאה שנייה-שלישית / שלישית
+  114: 7, 117: 7, // לדיון במליאה לקראת קריאה שנייה-שלישית / שלישית
+  118: 8, // התקבלה בקריאה שלישית
 };
 
 /**
- * The government ladder, which is not the private one with the first rungs
- * removed — the order differs. A private bill goes to committee *before* first
- * reading; a government bill goes after it, and never has a preliminary
- * reading at all. Plotting one on the other's axis credits it with stages it
- * never passed.
+ * The government ladder: exactly rungs 3-8 of the private one, same names.
  *
- * Private bills that reach first reading are plotted on this ladder too, since
- * they do traverse exactly these stages, and the comparison is the point.
+ * What government bills skip is the **preliminary round** — its tabling (104,
+ * 6,804 private bills against 0 government) and its plenum debate (150, 1,525
+ * against 0). They are certainly tabled: 405 of them carry 141, tabling for the
+ * first reading, against 269 private bills.
+ *
+ * So there is no single "tabling" step. A bill is laid before the House once per
+ * reading, and it is only the preliminary one that government bills bypass. The
+ * ladders share a vocabulary for that reason: the government path is the tail of
+ * the private path, not a different sequence.
+ *
+ * Private bills that reach a first reading are plotted here too, since they
+ * traverse exactly these stages, and that comparison is the point.
  */
 export const GOV_STAGES = [
   "הונחה לקריאה ראשונה",

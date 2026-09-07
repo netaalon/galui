@@ -424,11 +424,19 @@ what makes the URL-length limit the binding constraint on a full run. Use
   own: counting stages literally made government bills *rise* through the ladder,
   60 at the committee stage against 410 at first reading. Take the maximum rung
   and count "got at least this far".
-- **Government and private bills follow different ladders**, not merely
-  different starting points: a private bill's committee stage comes *before*
-  first reading and a government bill's after it, and a government bill has no
-  preliminary reading at all. `src/lib/funnel.ts` carries both. Plotting one on
-  the other's axis credits it with stages it never passed.
+- **There is no single "tabling" step.** A bill is laid before the House once
+  per reading — 104 for the preliminary, 141 for the first, 130 for the
+  second-third — and `לדיון במליאה לקראת X` is a separate, later event meaning
+  it reached the plenum agenda for that reading. Laying precedes scheduling: of
+  607 bills holding both 141 and 111, 480 were laid strictly earlier, 127 in the
+  same sitting, none the reverse. They are not redundant — 74 bills were laid
+  for a first reading and never scheduled for one. (131, tabling for a third
+  reading, has zero rows this term.)
+- **What government bills skip is the preliminary round, not tabling.** 104 has
+  6,804 private bills and 0 government ones, 150 has 1,525 and 0 — but 141
+  carries 405 government bills against 269 private. Their path is the *tail* of
+  the private path from rung 3 on, same stages in the same order, which is how
+  `src/lib/funnel.ts` models it.
   3.0% of private bills became law against 58.2% of government ones — but that
   gap is **entirely front-loaded**. Only 4.4% of private bills reach a first
   reading, and of those 68.9% become law, *above* the government bills' 59.3%.
