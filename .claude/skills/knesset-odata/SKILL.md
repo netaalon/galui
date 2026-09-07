@@ -360,7 +360,9 @@ shows up.
   false. Nor is it positional — false rows run from ordinal 1 to 49. `Ordinal`
   is no substitute either: 68 bills have more than one ordinal-1 sponsor. **The
   feed does not appear to identify a lead sponsor at all**, so do not present
-  one. (The UI currently does, in four places, which is a known defect.)
+  one — the UI shows a single sponsor list in ordinal order, and a member's
+  activity chart one series rather than a lead/co-signed stack that was 98% one
+  colour.
 - **Government bills usually have no MK initiators** (10% do, vs 100% of private
   bills), so an empty `KNS_BillInitiator` is correct data for them rather than a
   gap. When a government bill *does* have sponsors it is normally because it

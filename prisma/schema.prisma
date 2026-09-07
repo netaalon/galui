@@ -224,7 +224,14 @@ model BillInitiator {
   billInitiatorId Int     @id
   billId          Int
   personId        Int
+  /// Upstream `IsInitiator`, stored as given — but **it does not mark a lead
+  /// sponsor**, whatever the name suggests. It is true on 16,966 rows and false
+  /// on 366; 2,088 bills flag every sponsor true and only 17 flag exactly one.
+  /// It is not positional either: false rows run from ordinal 1 to 49. Do not
+  /// build a lead-sponsor distinction on it, and do not fall back to `ordinal`
+  /// 1 for one — 68 bills have several sponsors sharing it.
   isInitiator     Boolean @default(false)
+  /// The order the Knesset lists sponsors in. Not unique per bill.
   ordinal         Int?
   lastUpdatedDate DateTime?
 

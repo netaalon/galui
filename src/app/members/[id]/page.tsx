@@ -37,7 +37,6 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
     getMemberVotingRecord(personId, 8),
   ]);
 
-  const leadCount = member.billsInitiated.filter((b) => b.isInitiator).length;
   const siteUrl = knessetMemberUrl(member.siteId);
 
   return (
@@ -104,7 +103,7 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
             <CardHeader>
               <CardTitle>פעילות חקיקה</CardTitle>
               <CardDescription>
-                {member.billsInitiated.length} הצעות חוק במדגם, מתוכן {leadCount} כיוזם/ת ראשי/ת.
+                {member.billsInitiated.length} הצעות חוק שעליהן חתום/ה חבר/ת הכנסת.
                 החלוקה לחודשים היא לפי המועד המוקדם ביותר שבו ההצעה עלתה על סדר היום
                 של המליאה או של ועדה — ולא לפי מועד העדכון האחרון, שמשתנה בהינף אחד
                 עבור כל הצעות החוק של חבר/ת כנסת שפורש/ת.
@@ -117,7 +116,7 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
                   <code className="font-mono">npm run ingest -- --bills=1000</code>.
                 </EmptyState>
               ) : (
-                <MemberActivityChart data={activity} />
+                <MemberActivityChart data={activity} singleSeries />
               )}
             </CardContent>
           </Card>
@@ -164,11 +163,6 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <StatusBadge label={s.bill.status?.desc} />
                       <BillTypeBadge label={s.bill.subTypeDesc} />
-                      {s.isInitiator ? (
-                        <Badge variant="outline" className="border-primary/30 text-primary">
-                          יוזם/ת ראשי/ת
-                        </Badge>
-                      ) : null}
                       <span className="ms-auto tabular-nums">{formatRelative(s.bill.firstStepDate)}</span>
                     </div>
                   </Link>

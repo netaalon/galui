@@ -18,12 +18,10 @@ export async function getRecentBills(take = 5) {
     include: {
       status: true,
       committee: true,
-      initiators: {
-        where: { isInitiator: true },
-        orderBy: { ordinal: "asc" },
-        take: 1,
-        include: { person: true },
-      },
+      // First-named sponsor. Not "the lead sponsor": `IsInitiator` is true on
+      // 98% of rows and marks nothing useful, and even `Ordinal` 1 is shared by
+      // more than one sponsor on 68 bills. See the knesset-odata skill.
+      initiators: { orderBy: { ordinal: "asc" }, take: 1, include: { person: true } },
     },
   });
 }
@@ -130,7 +128,7 @@ export async function listBills(opts: { q?: string; take?: number; skip?: number
       include: {
         status: true,
         committee: true,
-        initiators: { where: { isInitiator: true }, take: 1, include: { person: true } },
+        initiators: { orderBy: { ordinal: "asc" }, take: 1, include: { person: true } },
         _count: { select: { sessionItems: true, initiators: true, documents: true } },
       },
     }),
@@ -148,10 +146,10 @@ export async function getBill(billId: number) {
       // groupTypeId runs in legislative order, so this reads as progression.
       documents: { orderBy: [{ groupTypeId: "asc" }, { filePath: "asc" }] },
       votes: { orderBy: [{ voteDateTime: "asc" }, { ordinal: "asc" }] },
-      initiators: {
-        orderBy: [{ isInitiator: "desc" }, { ordinal: "asc" }],
-        include: { person: true },
-      },
+      // Ordinal order, which is the order the Knesset lists them in. Sorting by
+      // `IsInitiator` first implied a lead-sponsor distinction the feed does not
+      // actually draw.
+      initiators: { orderBy: { ordinal: "asc" }, include: { person: true } },
       sessionItems: {
         include: {
           status: true,
@@ -259,14 +257,17 @@ export async function getMemberActivityByMonth(personId: number) {
     include: { bill: { select: { firstStepDate: true, subTypeDesc: true } } },
   });
 
-  const buckets = new Map<string, { month: string; total: number; lead: number }>();
+  // One series, not two. This used to stack "lead" against "co-signed" from
+  // `IsInitiator`, which is true on 98% of rows — so every bar was one colour
+  // with an occasional sliver, splitting the data on a distinction the feed
+  // does not draw.
+  const buckets = new Map<string, { month: string; total: number }>();
   for (const s of sponsorships) {
     const when = s.bill.firstStepDate;
     if (!when) continue;
     const key = `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, "0")}`;
-    const bucket = buckets.get(key) ?? { month: key, total: 0, lead: 0 };
+    const bucket = buckets.get(key) ?? { month: key, total: 0 };
     bucket.total += 1;
-    if (s.isInitiator) bucket.lead += 1;
     buckets.set(key, bucket);
   }
 
@@ -276,10 +277,10 @@ export async function getMemberActivityByMonth(personId: number) {
   if (keys.length === 0) return [];
   const [startY, startM] = keys[0].split("-").map(Number);
   const [endY, endM] = keys[keys.length - 1].split("-").map(Number);
-  const filled: Array<{ month: string; total: number; lead: number }> = [];
+  const filled: Array<{ month: string; total: number }> = [];
   for (let y = startY, m = startM; y < endY || (y === endY && m <= endM); m === 12 ? ((y += 1), (m = 1)) : (m += 1)) {
     const key = `${y}-${String(m).padStart(2, "0")}`;
-    filled.push(buckets.get(key) ?? { month: key, total: 0, lead: 0 });
+    filled.push(buckets.get(key) ?? { month: key, total: 0 });
   }
   return filled;
 }
@@ -551,11 +552,10 @@ export async function getCommitteeActivity(committeeId: number) {
   if (keys.length === 0) return [];
   const [sy, sm] = keys[0].split("-").map(Number);
   const [ey, em] = keys[keys.length - 1].split("-").map(Number);
-  const out: Array<{ month: string; total: number; lead: number }> = [];
+  const out: Array<{ month: string; total: number }> = [];
   for (let y = sy, m = sm; y < ey || (y === ey && m <= em); m === 12 ? ((y += 1), (m = 1)) : (m += 1)) {
     const key = `${y}-${String(m).padStart(2, "0")}`;
-    // Reuses the member chart's shape: `lead` is unused here.
-    out.push({ month: key, total: buckets.get(key) ?? 0, lead: 0 });
+    out.push({ month: key, total: buckets.get(key) ?? 0 });
   }
   return out;
 }

@@ -10,16 +10,21 @@ import {
   YAxis,
 } from "recharts";
 
-export type ActivityPoint = { month: string; total: number; lead: number };
+export type ActivityPoint = { month: string; total: number; lead?: number };
 
 /**
- * The chart plots one or two stacked series. Members split their bills into
- * lead and co-signed; committees have a single series of sittings, so the
- * labels have to be supplied rather than hardcoded.
+ * The chart plots one or two stacked series, so the labels are supplied rather
+ * than hardcoded.
+ *
+ * Members used to be split into lead and co-signed bills. They are not any
+ * more: that split came from `KNS_BillInitiator.IsInitiator`, which is true on
+ * 98% of rows, so it drew a distinction the feed does not make. Both remaining
+ * callers pass `singleSeries`; the stacking is kept for a second series that
+ * turns out to be real.
  */
 export type ActivityLabels = { lead: string; rest: string };
 
-const MEMBER_LABELS: ActivityLabels = { lead: "יוזם/ת ראשי/ת", rest: "חתום/ה" };
+const MEMBER_LABELS: ActivityLabels = { lead: "הצעות חוק", rest: "הצעות חוק" };
 
 /** "2025-08" → "אוג׳ 25" */
 function labelFor(month: string): string {
@@ -39,7 +44,10 @@ export function MemberActivityChart({
   labels?: ActivityLabels;
   singleSeries?: boolean;
 }) {
-  const rows = data.map((d) => ({ ...d, label: labelFor(d.month), cosponsored: d.total - d.lead }));
+  const rows = data.map((d) => {
+    const lead = d.lead ?? d.total;
+    return { ...d, lead, label: labelFor(d.month), cosponsored: d.total - lead };
+  });
 
   return (
     // Recharts positions its axes physically; keeping the plot LTR keeps time

@@ -7,7 +7,6 @@ import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { formatDate, fullName } from "@/lib/format";
 import { getBill } from "@/lib/queries";
 import { buildBillTimeline } from "@/lib/timeline";
@@ -30,8 +29,8 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
   if (!bill) notFound();
 
   const events = buildBillTimeline(bill);
-  const lead = bill.initiators.filter((i) => i.isInitiator);
-  const cosponsors = bill.initiators.filter((i) => !i.isInitiator);
+  // One list, in the order the Knesset lists them. There is no lead-sponsor
+  // split to make: `KNS_BillInitiator.IsInitiator` is true on 98% of rows.
   // Government bills are initiated by a ministry, not by MKs, so KNS_BillInitiator
   // is legitimately empty for them — worth saying, rather than showing a blank card.
   const isGovernmentBill = bill.subTypeDesc?.includes("ממשלתית") ?? false;
@@ -137,44 +136,26 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
                     : "לא רשומים יוזמים."}
                 </EmptyState>
               ) : (
-                <>
-                  {lead.map((i) => (
-                    <Link
-                      key={i.billInitiatorId}
-                      href={`/members/${i.personId}`}
-                      className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/60"
-                    >
-                      <MemberAvatar person={i.person} className="size-9" />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{fullName(i.person)}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {i.person.factionName ?? "יוזם/ת ראשי/ת"}
+                <ul className="space-y-3">
+                  {bill.initiators.map((i) => (
+                    <li key={i.billInitiatorId}>
+                      <Link
+                        href={`/members/${i.personId}`}
+                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/60"
+                      >
+                        <MemberAvatar person={i.person} className="size-9" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{fullName(i.person)}</span>
+                          {i.person.factionName ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {i.person.factionName}
+                            </span>
+                          ) : null}
                         </span>
-                      </span>
-                    </Link>
+                      </Link>
+                    </li>
                   ))}
-
-                  {cosponsors.length > 0 ? (
-                    <>
-                      {lead.length > 0 ? <Separator /> : null}
-                      <p className="text-xs font-medium text-muted-foreground">
-                        חתומים נוספים ({cosponsors.length})
-                      </p>
-                      <ul className="space-y-1">
-                        {cosponsors.map((i) => (
-                          <li key={i.billInitiatorId}>
-                            <Link
-                              href={`/members/${i.personId}`}
-                              className="text-sm text-muted-foreground hover:text-foreground hover:underline"
-                            >
-                              {fullName(i.person)}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : null}
-                </>
+                </ul>
               )}
             </CardContent>
           </Card>

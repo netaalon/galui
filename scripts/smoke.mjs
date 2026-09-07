@@ -45,6 +45,7 @@ async function check(path, fn) {
     /\bidFallbacks=[1-9]/, /\bgroups=0(?!\d)/, /\bmemberLinks=0(?!\d)/,
     /\bsittingLink=0(?!\d)/, /\bsittingVotes=0(?!\d)/, /\bmemberVoteCard=0(?!\d)/,
     /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
+    /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/,
     /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
   ];
   const hit = BAD.find((re) => re.test(result));
@@ -75,6 +76,21 @@ await check("/", async () => {
   await page.waitForTimeout(400);
   const after = await page.getAttribute("html", "class");
   return `dir=${dir} navLinks=${nav} theme: "${before}" -> "${after}"`;
+});
+
+// The feed marks 98% of sponsors as `IsInitiator`, so no page may present a
+// lead sponsor. 2229019 is a government bill that inherited 11 cross-party
+// sponsors from a private bill merged into it — every one of them used to be
+// badged as the lead.
+await check("/bills/2229019", async () => {
+  const sponsors = await page.locator('aside a[href^="/members/"]').count();
+  const leadBadges = (await page.locator("aside").innerText()).split("יוזם/ת ראשי/ת").length - 1;
+  return `sponsors=${sponsors} leadBadges=${leadBadges}`;
+});
+
+await check("/members/30719", async () => {
+  const leadBadges = (await page.locator("body").innerText()).split("יוזם/ת ראשי/ת").length - 1;
+  return `member leadBadges=${leadBadges}`;
 });
 
 // A bill whose only activity is one plenum sitting: its text must still be here.
