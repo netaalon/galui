@@ -442,7 +442,17 @@ Ingested: `KNS_PlenumVote` and `KNS_PlenumVoteResult` — see the section below.
 Not yet ingested — each is an open issue, not an oversight:
 
 - `V_Lobbyists`, `V_LobbyistsClients`.
-- `KNS_SecondaryLaw` (60,297), `KNS_IsraelLaw` and the law-correction tables.
+- `KNS_SecondaryLaw` (60,297), `KNS_IsraelLaw` (2,024) and the law tables. The
+  bill → law link is **`KNS_LawBinding`** (15,326), whose `LawID` is a *BillID*:
+  it gives the law amended, the amendment ordinal (`CorrectionNumber`, i.e.
+  "תיקון מס' 47"), whether the change is direct or indirect, and which clause
+  did it. **It exists only for enacted bills** — all 592 covered bills passed
+  third reading, of 594 that did, and nothing records what a pending bill
+  *proposes* to change. Do not reach for `KNS_LawCorrections` (610 rows) for
+  this; it carries a `BillID` but is some narrower correction and had nothing
+  for a bill with nine `KNS_LawBinding` rows. `KNS_IsraelLawBinding` (375) is
+  one law superseding another, not a bill link. `KNS_Law` and `KNS_DocumentLaw`
+  do not exist in v4, and `KNS_DocumentIsraelLaw` is empty. See #14.
 - `KNS_BillSplit` / `KNS_BillUnion` — why a bill's page can look empty (#18).
 - `KNS_BillName` — a bill's renaming history.
 
