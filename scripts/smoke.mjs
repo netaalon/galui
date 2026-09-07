@@ -47,7 +47,8 @@ async function check(path, fn) {
     /\bbillVotes=0(?!\d)/, /\bbillLinkOnVote=0(?!\d)/, /\bseparateSection=[1-9]/,
     /\bleadBadges=[1-9]/, /\bsponsors=0(?!\d)/, /\brosterMembers=0(?!\d)/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
-    /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/,
+    /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
+    /\bseatDupes=[1-9]/,
     /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
   ];
   const hit = BAD.find((re) => re.test(result));
@@ -95,12 +96,23 @@ await check("/committees/4186", async () => {
   // lists look the same size when one is three times the other.
   const att = await page.locator('[data-testid="committee-attendance"]').innerText();
   const disclosed = /עוד \d+ נכחו/.test(att) || !/מוצגים/.test(att);
-  return `rosterChair=${chair} rosterMembers=${all - past} rosterPast=${past} blocSplit=${blocSplit} attendanceDisclosed=${disclosed}`;
+  // A chair holds a member seat too, so nobody may appear in two groups.
+  // Serving groups only: the collapsed past list repeats people legitimately,
+  // since one person can have held several seats over the term.
+  const hrefs = await page
+    .locator('[data-testid="committee-roster"] a[href^="/members/"]:not(details a)')
+    .evaluateAll((ns) => ns.map((n) => n.getAttribute("href")));
+  const dupes = hrefs.length - new Set(hrefs).size;
+  return `rosterChair=${chair} rosterMembers=${all - past} rosterPast=${past} blocSplit=${blocSplit} attendanceDisclosed=${disclosed} rosterDupes=${dupes}`;
 });
 
 await check("/members/30719", async () => {
   const seats = await page.locator('[data-testid="member-seats"] li').count();
-  return `memberSeats=${seats}`;
+  // The same committee must not be listed twice for one member.
+  const names = await page
+    .locator('[data-testid="member-seats"] li a[href^="/committees/"]')
+    .evaluateAll((ns) => ns.map((n) => n.getAttribute("href")));
+  return `memberSeats=${seats} seatDupes=${names.length - new Set(names).size}`;
 });
 
 // The feed marks 98% of sponsors as `IsInitiator`, so no page may present a

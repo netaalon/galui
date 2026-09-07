@@ -16,12 +16,14 @@ export function CommitteeRoster({
   chairs,
   members,
   substitutes,
+  memberCount,
   past,
   blocs,
 }: {
   chairs: RosterSeat[];
   members: RosterSeat[];
   substitutes: RosterSeat[];
+  memberCount: number;
   past: RosterSeat[];
   blocs: Map<string, number>;
 }) {
@@ -30,16 +32,16 @@ export function CommitteeRoster({
 
   return (
     <div className="space-y-5">
-      {coalition + opposition > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {coalition > 0 ? `${coalition.toLocaleString("he-IL")} מהקואליציה` : null}
-          {coalition > 0 && opposition > 0 ? " · " : null}
-          {opposition > 0 ? `${opposition.toLocaleString("he-IL")} מהאופוזיציה` : null}
-        </p>
-      ) : null}
+      {/* The chair is one of the members, so the total is stated here and the
+          groups below list each person once. */}
+      <p className="text-xs text-muted-foreground">
+        {memberCount.toLocaleString("he-IL")} חברים, ובהם היו״ר
+        {coalition > 0 ? ` · ${coalition.toLocaleString("he-IL")} מהקואליציה` : ""}
+        {opposition > 0 ? ` · ${opposition.toLocaleString("he-IL")} מהאופוזיציה` : ""}
+      </p>
 
       {chairs.length > 0 ? <Group label="יושב/ת ראש" seats={chairs} prominent /> : null}
-      {members.length > 0 ? <Group label={`חברי ועדה (${members.length})`} seats={members} /> : null}
+      {members.length > 0 ? <Group label={`חברים נוספים (${members.length})`} seats={members} /> : null}
       {substitutes.length > 0 ? (
         <Group label={`מ"מ (${substitutes.length})`} seats={substitutes} muted />
       ) : null}

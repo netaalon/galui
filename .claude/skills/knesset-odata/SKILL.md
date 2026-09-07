@@ -92,6 +92,14 @@ one committee), so members are `42 ∪ 66` and splitting on them splits every
 roster by gender; and **67 is a substitute, not a member** — Finance has 20
 members and 5 מ"מ, so counting them together inflates every committee.
 
+**A chair also holds a member seat**, on 71 of the term's 83 committees, so the
+same person arrives twice for one committee. That is right — the chair of a
+committee is one of its members — but it means a roster must place each person
+once in their strongest role, or the chair is listed in two groups and counted
+twice in a coalition/opposition split. 282 member/committee pairs have more
+than one seat row for this reason, and one person currently holds both a member
+and a substitute seat. Finance is 20 people, not 21.
+
 Coverage for Knesset 25 is effectively complete: all 16 main committees and all
 15 special committees have a current roster, 30 of 37 subcommittees do, and the
 only three committees with no roster at all are subcommittees on classified

@@ -667,42 +667,78 @@ export async function getCommitteeRoster(committeeId: number, knessetNum = 25) {
 
   const current = seats.filter((s) => s.isCurrent);
   const past = seats.filter((s) => !s.isCurrent);
-  const blocOf = (role: RosterSeat["role"]) => {
-    const counts = new Map<string, number>();
-    for (const s of current) {
-      if (s.role !== role) continue;
-      const key = s.person.bloc ?? "unknown";
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return counts;
-  };
+
+  // **A chair holds a member seat too**, on 71 of the term's 83 committees, so
+  // the same person arrives here twice. That is correct upstream — the chair of
+  // a committee is one of its members — but listing them in both groups shows
+  // them twice, and counting both rows inflates the bloc split by one.
+  //
+  // So each person is placed once, in their strongest role: chair, else member,
+  // else substitute. One person currently holds both a member and a substitute
+  // seat, which the same rule settles.
+  const chairs = current.filter((s) => s.role === "chair");
+  const chairIds = new Set(chairs.map((s) => s.person.personId));
+  const allMembers = current.filter((s) => s.role === "member");
+  const memberIds = new Set(allMembers.map((s) => s.person.personId));
+
+  const others = allMembers.filter((s) => !chairIds.has(s.person.personId));
+  const substitutes = current.filter(
+    (s) => s.role === "substitute" && !chairIds.has(s.person.personId) && !memberIds.has(s.person.personId),
+  );
+
+  // Blocs count people, not seats: everyone with a member seat, plus a chair
+  // who somehow has none. Substitutes are not members and are left out.
+  const onCommittee = new Map<number, (typeof current)[number]>();
+  for (const s of [...chairs, ...allMembers]) onCommittee.set(s.person.personId, s);
+  const blocs = new Map<string, number>();
+  for (const s of onCommittee.values()) {
+    const key = s.person.bloc ?? "unknown";
+    blocs.set(key, (blocs.get(key) ?? 0) + 1);
+  }
 
   return {
-    chairs: current.filter((s) => s.role === "chair"),
-    members: current.filter((s) => s.role === "member"),
-    substitutes: current.filter((s) => s.role === "substitute"),
+    chairs,
+    /** Members other than the chair, who is listed above rather than twice. */
+    members: others,
+    substitutes,
+    /** Everyone holding a seat, the chair counted once. */
+    memberCount: onCommittee.size,
     /** Seats that have ended — a former chair or member. */
     past,
-    /** Coalition/opposition split of the sitting members, chair included. */
-    blocs: new Map([...blocOf("member"), ...blocOf("chair")].reduce((m, [k, v]) => {
-      m.set(k, (m.get(k) ?? 0) + v);
-      return m;
-    }, new Map<string, number>())),
+    /** Coalition/opposition split by person, chair counted once. */
+    blocs,
     hasRoster: seats.length > 0,
   };
 }
 
-/** The committee seats a member holds, and the ones they have held. */
+/**
+ * The committee seats a member holds, and the ones they have held.
+ *
+ * One entry per committee per period, in the strongest role. A chair also holds
+ * a member seat on the same committee, so the raw rows would list the committee
+ * twice — once as יו"ר and once as חבר/ה.
+ */
 export async function getMemberCommitteeSeats(personId: number, knessetNum = 25) {
   const rows = await prisma.personPosition.findMany({
     where: { personId, knessetNum, positionId: { in: ROSTER_POSITIONS }, committeeId: { not: null } },
+    // Chair first, so it wins the de-duplication below.
     orderBy: [{ isCurrent: "desc" }, { positionId: "asc" }],
     select: {
       personToPositionId: true, positionId: true, committeeId: true, committeeName: true,
       isCurrent: true, startDate: true, finishDate: true,
     },
   });
-  return rows.map((r) => ({ ...r, role: seatRole(r.positionId) }));
+
+  // One entry per committee. The ordering above puts a serving seat and the
+  // chair role first, so that is what survives — a member who sits on a
+  // committee now does not also need a line saying they used to.
+  const seen = new Set<number>();
+  return rows
+    .map((r) => ({ ...r, role: seatRole(r.positionId) }))
+    .filter((r) => {
+      const key = r.committeeId!;
+      return seen.has(key) ? false : (seen.add(key), true);
+    });
 }
 
 export async function getCommitteeMembership(committeeId: number, take = 20) {

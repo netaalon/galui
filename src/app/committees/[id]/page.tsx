@@ -236,6 +236,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
                   chairs={roster.chairs}
                   members={roster.members}
                   substitutes={roster.substitutes}
+                  memberCount={roster.memberCount}
                   past={roster.past}
                   blocs={roster.blocs}
                 />
