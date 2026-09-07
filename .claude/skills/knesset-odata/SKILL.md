@@ -354,8 +354,23 @@ shows up.
   pages, the photo archive and Wikidata's P9770 use. Confusing them does not
   fail — it returns the wrong person. Site code 837 is חנין זועבי; SiteId 837 is
   חמד עמאר.
-- **Government bills have no MK initiators** (10% do, vs 100% of private bills).
-  An empty `KNS_BillInitiator` is correct data for them, not a gap.
+- **`KNS_BillInitiator.IsInitiator` does not mark a lead sponsor**, whatever the
+  name suggests. It is true on 16,966 rows and false on 366; 2,088 bills have
+  *every* sponsor flagged true and only 17 have exactly one true with the others
+  false. Nor is it positional — false rows run from ordinal 1 to 49. `Ordinal`
+  is no substitute either: 68 bills have more than one ordinal-1 sponsor. **The
+  feed does not appear to identify a lead sponsor at all**, so do not present
+  one. (The UI currently does, in four places, which is a known defect.)
+- **Government bills usually have no MK initiators** (10% do, vs 100% of private
+  bills), so an empty `KNS_BillInitiator` is correct data for them rather than a
+  gap. When a government bill *does* have sponsors it is normally because it
+  **absorbed a private bill and inherited its list** — bill 2229019 carries the
+  same 11 cross-party sponsors as the private bill 2228568 it merged, which
+  reads as a data error until you check `KNS_BillUnion`. 42 of 650 government
+  bills are in this position. See #18.
+- **`KNS_BillHistoryInitiator`** (10,769 rows) records sponsors who came *off* a
+  bill, with an `EndDate` and a `ReasonDesc` such as `חדל להיות חבר כנסת`. A
+  sponsor list is a snapshot; this is its history.
 - **Knesset 25 spans two governments.** The 36th was still in office when the
   term opened, so its ministers appear in the position data. Filter on
   `GovernmentNum` before calling anyone a serving minister.
