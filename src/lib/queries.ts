@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { MemberSort } from "@/lib/member-sort";
 import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
-import { FUNNEL_STAGES, STATUS_RUNG } from "@/lib/funnel";
+import { FUNNEL_STAGES, GOV_STAGES, GOV_STATUS_RUNG, STATUS_RUNG } from "@/lib/funnel";
 
 /**
  * The bills that most recently entered the legislative process.
@@ -1174,12 +1174,15 @@ export async function getBillOwnBlocOpposition(billId: number) {
  * they never had. Their pass rate is returned separately for contrast.
  */
 export async function getBillFunnel() {
-  const cases = Object.entries(STATUS_RUNG)
-    .map(([id, rung]) => `WHEN ${Number(id)} THEN ${rung}`)
-    .join(" ");
+  const caseOf = (map: Record<number, number>) =>
+    Object.entries(map)
+      .map(([id, rung]) => `WHEN ${Number(id)} THEN ${rung}`)
+      .join(" ");
+  const cases = caseOf(STATUS_RUNG);
+  const govCases = caseOf(GOV_STATUS_RUNG);
 
   const rows = await prisma.$queryRawUnsafe<
-    Array<{ subType: string | null; bloc: string | null; faction: string | null; rung: number; n: number }>
+    Array<{ subType: string | null; bloc: string | null; faction: string | null; rung: number; govRung: number; n: number }>
   >(`
     WITH st AS (
       SELECT "billId", "statusId" FROM "Bill" WHERE "statusId" IS NOT NULL
@@ -1188,16 +1191,16 @@ export async function getBillFunnel() {
     ),
     rung AS (
       SELECT b."billId", b."subTypeDesc" AS "subType",
-             MAX(CASE s."statusId" ${cases} ELSE -1 END) AS rung
+             MAX(CASE s."statusId" ${cases} ELSE -1 END) AS rung,
+             MAX(CASE s."statusId" ${govCases} ELSE -1 END) AS "govRung"
         FROM st s JOIN "Bill" b ON b."billId" = s."billId"
        GROUP BY b."billId"
     )
-    SELECT r."subType", p."bloc", TRIM(p."factionName") AS faction, r.rung, COUNT(*) AS n
+    SELECT r."subType", p."bloc", TRIM(p."factionName") AS faction, r.rung, r."govRung", COUNT(*) AS n
       FROM rung r
       LEFT JOIN "BillInitiator" bi ON bi."billId" = r."billId" AND bi."ordinal" = 1
       LEFT JOIN "Person" p ON p."personId" = bi."personId"
-     WHERE r.rung >= 0
-     GROUP BY 1, 2, 3, 4
+     GROUP BY 1, 2, 3, 4, 5
   `);
 
   const stageCount = FUNNEL_STAGES.length;
@@ -1219,7 +1222,7 @@ export async function getBillFunnel() {
     return out;
   };
 
-  const isPrivate = (r: (typeof rows)[number]) => r.subType === "פרטית";
+  const isPrivate = (r: (typeof rows)[number]) => r.subType === "פרטית" && Number(r.rung) >= 0;
   const total = bucket(() => "all", isPrivate);
   const byBloc = bucket((r) => r.bloc, isPrivate);
   const byFaction = bucket((r) => r.faction, isPrivate);
@@ -1233,13 +1236,22 @@ export async function getBillFunnel() {
       .filter((s) => s.total >= minTotal)
       .sort((a, b) => b.total - a.total);
 
-  // Government bills, for the contrast line in the caption only.
-  const govByRung = new Map<number, number>();
-  for (const r of rows) {
-    if (r.subType !== "ממשלתית") continue;
-    govByRung.set(Number(r.rung), (govByRung.get(Number(r.rung)) ?? 0) + Number(r.n));
-  }
-  const gov = cumulative(govByRung);
+  // On the government ladder, for the origin view: both kinds traverse these
+  // same stages, so they are directly comparable here.
+  const govStageCount = GOV_STAGES.length;
+  const onGovLadder = (kind: string) => {
+    const byRung = new Map<number, number>();
+    for (const r of rows) {
+      if (r.subType !== kind || Number(r.govRung) < 0) continue;
+      byRung.set(Number(r.govRung), (byRung.get(Number(r.govRung)) ?? 0) + Number(r.n));
+    }
+    const counts = Array.from({ length: govStageCount }, (_, i) =>
+      [...byRung.entries()].reduce((sum, [rr, n]) => (rr >= i ? sum + n : sum), 0),
+    );
+    return { counts, total: counts[0], passed: counts[govStageCount - 1] };
+  };
+  const government = onGovLadder("ממשלתית");
+  const privateOnGov = onGovLadder("פרטית");
 
   return {
     stages: [...FUNNEL_STAGES],
@@ -1249,6 +1261,12 @@ export async function getBillFunnel() {
     // success rate, which is noise dressed as a finding — and eight lines is
     // already the most a reader can follow.
     byFaction: toSeries(byFaction, 40).slice(0, 8),
-    government: { counts: gov, total: gov[0] ?? 0, passed: gov[stageCount - 1] ?? 0 },
+    govStages: [...GOV_STAGES],
+    /** Both kinds on the government ladder — see GOV_STAGES for why. */
+    byOrigin: [
+      { key: "government", counts: government.counts, total: government.total, passed: government.passed },
+      { key: "private", counts: privateOnGov.counts, total: privateOnGov.total, passed: privateOnGov.passed },
+    ],
+    government,
   };
 }

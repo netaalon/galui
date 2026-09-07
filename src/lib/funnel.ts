@@ -37,10 +37,38 @@ export const STATUS_RUNG: Record<number, number> = {
   118: 6, // התקבלה בקריאה שלישית
 };
 
-export type FunnelView = "total" | "bloc" | "faction";
+/**
+ * The government ladder, which is not the private one with the first rungs
+ * removed — the order differs. A private bill goes to committee *before* first
+ * reading; a government bill goes after it, and never has a preliminary
+ * reading at all. Plotting one on the other's axis credits it with stages it
+ * never passed.
+ *
+ * Private bills that reach first reading are plotted on this ladder too, since
+ * they do traverse exactly these stages, and the comparison is the point.
+ */
+export const GOV_STAGES = [
+  "הונחה לקריאה ראשונה",
+  "קריאה ראשונה",
+  "ועדה לקראת שנייה-שלישית",
+  "הונחה לקריאה שנייה-שלישית",
+  "קריאה שנייה-שלישית",
+  "התקבלה",
+] as const;
+
+export const GOV_STATUS_RUNG: Record<number, number> = {
+  141: 0,
+  111: 1,
+  113: 2, 178: 2, 179: 2,
+  130: 3, 131: 3,
+  114: 4, 117: 4,
+  118: 5,
+};
+
+export type FunnelView = "total" | "bloc" | "faction" | "origin";
 
 export function parseFunnelView(v: string | undefined): FunnelView {
-  return v === "bloc" || v === "faction" ? v : "total";
+  return v === "bloc" || v === "faction" || v === "origin" ? v : "total";
 }
 
 /**

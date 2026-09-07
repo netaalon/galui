@@ -45,8 +45,15 @@ export default async function PatternsPage({
 
   const coalKiller = killers.find((k) => k.sponsorBloc === "coalition");
   const oppKiller = killers.find((k) => k.sponsorBloc === "opposition");
+  const isOrigin = view === "origin";
+  const funnelStages = isOrigin ? funnel.govStages : funnel.stages;
   const funnelSeries =
-    view === "bloc"
+    isOrigin
+      ? funnel.byOrigin.map((s) => ({
+          ...s,
+          label: s.key === "government" ? "ממשלתיות" : "פרטיות",
+        }))
+      : view === "bloc"
       ? funnel.byBloc.map((s) => ({ ...s, label: s.key === "coalition" ? "קואליציה" : "אופוזיציה" }))
       : view === "faction"
         // Party names run to 60 characters — the ש"ס entry alone is
@@ -79,18 +86,34 @@ export default async function PatternsPage({
           <CardHeader>
             <CardTitle>מה עובר את המסלול</CardTitle>
             <CardDescription>
-              הצעות חוק פרטיות לפי השלב הרחוק ביותר שאליו הגיעו —{" "}
-              {he(funnel.total.total)} הצעות, מהן {he(funnel.total.passed)} הפכו לחוק (
-              {pct(funnel.total.passed, funnel.total.total)}%). לשם השוואה,{" "}
-              {pct(funnel.government.passed, funnel.government.total)}% מהצעות החוק
-              הממשלתיות התקבלו. הצעות ממשלתיות אינן על הגרף: מסלולן שונה, והן נכנסות
-              אליו בקריאה הראשונה.
+              {isOrigin ? (
+                <>
+                  מסלול ההצעות הממשלתיות, שאינו זהה למסלול הפרטי: אין בו דיון מוקדם,
+                  והוועדה באה אחרי הקריאה הראשונה ולא לפניה. גם הצעות פרטיות שהגיעו
+                  לקריאה ראשונה עוברות בדיוק את השלבים האלה, ולכן הן מוצגות כאן לצידן.
+                </>
+              ) : (
+                <>
+                  הצעות חוק פרטיות לפי השלב הרחוק ביותר שאליו הגיעו —{" "}
+                  {he(funnel.total.total)} הצעות, מהן {he(funnel.total.passed)} הפכו לחוק (
+                  {pct(funnel.total.passed, funnel.total.total)}%). לשם השוואה,{" "}
+                  {pct(funnel.government.passed, funnel.government.total)}% מהצעות החוק
+                  הממשלתיות התקבלו — ראו „ממשלתיות מול פרטיות” למסלולן, שהוא שונה.
+                </>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 text-xs">
               <span className="flex gap-2">
-                {([["total", "הכול"], ["bloc", "לפי גוש"], ["faction", "לפי סיעה"]] as const).map(
+                {(
+                  [
+                    ["total", "הכול"],
+                    ["bloc", "לפי גוש"],
+                    ["faction", "לפי סיעה"],
+                    ["origin", "ממשלתיות מול פרטיות"],
+                  ] as const
+                ).map(
                   ([v, label]) => (
                     <Link
                       key={v}
@@ -130,7 +153,25 @@ export default async function PatternsPage({
               </span>
             </div>
 
-            <BillFunnel stages={funnel.stages} series={funnelSeries} scale={scale} />
+            <BillFunnel stages={funnelStages} series={funnelSeries} scale={scale} />
+
+            {isOrigin ? (
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                מכאן ואילך התמונה מתהפכת. מבין ההצעות שהגיעו לקריאה ראשונה התקבלו{" "}
+                {pct(
+                  funnel.byOrigin.find((s) => s.key === "private")?.passed ?? 0,
+                  funnel.byOrigin.find((s) => s.key === "private")?.total ?? 1,
+                )}
+                % מההצעות הפרטיות מול{" "}
+                {pct(
+                  funnel.byOrigin.find((s) => s.key === "government")?.passed ?? 0,
+                  funnel.byOrigin.find((s) => s.key === "government")?.total ?? 1,
+                )}
+                % מהממשלתיות. התמותה של ההצעות הפרטיות כולה בשלבים שלפני כן: רק{" "}
+                {pct(funnel.byOrigin.find((s) => s.key === "private")?.total ?? 0, funnel.total.total)}
+                % מהן מגיעות בכלל לקריאה ראשונה.
+              </p>
+            ) : null}
 
             {view === "bloc" ? (
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">

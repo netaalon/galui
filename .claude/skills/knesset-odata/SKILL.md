@@ -426,9 +426,13 @@ what makes the URL-length limit the binding constraint on a full run. Use
   and count "got at least this far".
 - **Government and private bills follow different ladders**, not merely
   different starting points: a private bill's committee stage comes *before*
-  first reading and a government bill's after it. 3.0% of private bills became
-  law against 58.2% of government ones, and plotting both on one axis credits
-  government bills with a preliminary reading they never had.
+  first reading and a government bill's after it, and a government bill has no
+  preliminary reading at all. `src/lib/funnel.ts` carries both. Plotting one on
+  the other's axis credits it with stages it never passed.
+  3.0% of private bills became law against 58.2% of government ones — but that
+  gap is **entirely front-loaded**. Only 4.4% of private bills reach a first
+  reading, and of those 68.9% become law, *above* the government bills' 59.3%.
+  Any claim that private legislation is weaker has to survive that number.
 - `KNS_PlmSessionItem.StatusID` is the **legislative reading stage**
   ("הונחה על שולחן הכנסת לקריאה ראשונה"), not a workflow state. It is what makes
   a bill timeline readable. `IsDiscussion` (an int, not a bool) separates a real

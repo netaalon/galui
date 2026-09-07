@@ -52,6 +52,7 @@ async function check(path, fn) {
     /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
+    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-57-9](?!\d)/, /\bladderSwitched=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
@@ -206,6 +207,19 @@ await check("/patterns?funnel=bloc&scale=count", async () => {
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => /^[\d,]+$/.test(t)));
   const low = yTicks.filter((t) => Number(t.replace(/,/g, "")) > 0 && Number(t.replace(/,/g, "")) <= 900).length;
   return `blocGap=${gap} yTicks=${yTicks.length} lowTicks=${low}`;
+});
+
+// Government bills have their own ladder — no preliminary reading, and the
+// committee stage after first reading rather than before — so selecting them
+// must replace the x axis, not merely filter the lines. Six stages, not seven.
+await check("/patterns?funnel=origin&scale=count", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const lines = await page.locator(".recharts-line").count();
+  const xs = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
+  const switched = !xs.includes("דיון מוקדם") && xs.includes("הונחה לקריאה שנייה-שלישית");
+  return `originLines=${lines} originStages=${xs.length} ladderSwitched=${switched}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.
