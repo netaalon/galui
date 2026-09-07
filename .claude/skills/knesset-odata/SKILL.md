@@ -435,8 +435,11 @@ what makes the URL-length limit the binding constraint on a full run. Use
 - **What government bills skip is the preliminary round, not tabling.** 104 has
   6,804 private bills and 0 government ones, 150 has 1,525 and 0 — but 141
   carries 405 government bills against 269 private. Their path is the *tail* of
-  the private path from rung 3 on, same stages in the same order, which is how
-  `src/lib/funnel.ts` models it.
+  the private path from rung 3 on, same stages in the same order, so both kinds
+  share one ladder in `src/lib/funnel.ts` and the government series simply
+  starts later. Its earlier points must be **absent, not zero**: no government
+  bill has a furthest rung below that join, so a cumulative "at least this far"
+  count would otherwise draw them flat at 638 through stages they never saw.
   3.0% of private bills became law against 58.2% of government ones — but that
   gap is **entirely front-loaded**. Only 4.4% of private bills reach a first
   reading, and of those 68.9% become law, *above* the government bills' 59.3%.

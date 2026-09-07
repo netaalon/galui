@@ -52,7 +52,7 @@ async function check(path, fn) {
     /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
-    /\boriginLines=[01](?!\d)/, /\boriginStages=[0-35-9](?!\d)/, /\bisSuffix=false\b/, /\bladderSwitched=false\b/,
+    /\bbothKinds=false\b/, /\bgovStartsLate=false\b/,
     /\bstageWordingHonest=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
@@ -150,11 +150,14 @@ await check("/patterns", async () => {
   const stages = await page
     .locator(".recharts-cartesian-axis-tick-value")
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)).length);
-  const ys = await page
-    .locator(".recharts-line-dots circle")
-    .evaluateAll((ns) => ns.map((n) => Number(n.getAttribute("cy"))));
-  // A falling series plots downward, so cy must be non-decreasing.
-  const monotonic = ys.every((y, i) => i === 0 || y >= ys[i - 1] - 0.5);
+  // Per series, not across all dots: with two lines on the chart the second
+  // one's first point sits above the first one's last, which reads as a rise
+  // only if you concatenate them. This check did exactly that and failed.
+  const perSeries = await page
+    .locator(".recharts-line-dots")
+    .evaluateAll((gs) => gs.map((g) => [...g.querySelectorAll("circle")].map((c) => Number(c.getAttribute("cy")))));
+  // A falling series plots downward, so cy must be non-decreasing within it.
+  const monotonic = perSeries.every((ys) => ys.every((y, i) => i === 0 || y >= ys[i - 1] - 0.5));
 
   // No status in the feed records passing a first or second reading — only the
   // third. A rung label must therefore say a reading was reached, never that it
@@ -220,27 +223,22 @@ await check("/patterns?funnel=bloc&scale=count", async () => {
   return `blocGap=${gap} yTicks=${yTicks.length} lowTicks=${low}`;
 });
 
-// Government bills have their own ladder — no preliminary reading, and the
-// committee stage after first reading rather than before — so selecting them
-// must replace the x axis, not merely filter the lines. Six stages, not seven.
-await check("/patterns?funnel=origin&scale=count", async () => {
-  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
-  const lines = await page.locator(".recharts-line").count();
-  const xs = await page
-    .locator(".recharts-cartesian-axis-tick-value")
-    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
-  const switched = !xs.some((x) => x.includes("דיון מוקדם")) && xs.includes("הונחה לקריאה שנייה-שלישית");
-
-  // The government path is the tail of the private one, same stage names, so
-  // every government stage must appear on the private axis. If they drift apart
-  // the two views stop being comparable and "government bills skip tabling"
-  // becomes a plausible misreading again.
-  await page.goto(S + "/patterns?funnel=total", { waitUntil: "networkidle" });
-  const priv = await page
-    .locator(".recharts-cartesian-axis-tick-value")
-    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)));
-  const isSuffix = xs.every((x) => priv.includes(x)) && priv.slice(-xs.length).join("|") === xs.join("|");
-  return `originLines=${lines} originStages=${xs.length} ladderSwitched=${switched} isSuffix=${isSuffix}`;
+// Both kinds of bill share one ladder now, with the government line starting
+// at the first-reading tabling. Not one of the 638 government bills has a
+// furthest rung below it, so those earlier points must be absent rather than
+// drawn flat at 638 — which is what "at least this far" would otherwise show.
+await check("/patterns?funnel=total&scale=count", async () => {
+  await page.waitForSelector(".recharts-line-dots", { timeout: 15000 }).catch(() => {});
+  const dots = await page
+    .locator(".recharts-line-dots")
+    .evaluateAll((gs) => gs.map((g) => g.querySelectorAll("circle").length));
+  const legend = await page
+    .locator(".recharts-legend-item-text")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()));
+  const both = legend.includes("פרטיות") && legend.includes("ממשלתיות");
+  // Seven points for the private line, four for the government one.
+  const startsLate = dots.includes(7) && dots.includes(4);
+  return `bothKinds=${both} govStartsLate=${startsLate}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.

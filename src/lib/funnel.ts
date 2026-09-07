@@ -62,39 +62,24 @@ export const STATUS_RUNG: Record<number, number> = {
 };
 
 /**
- * The government ladder: exactly rungs 3-6 of the private one, same names.
+ * Government bills join the ladder above at the first-reading tabling.
  *
- * What government bills skip is the **preliminary round** — its tabling (104,
- * 6,804 private bills against 0 government) and its plenum debate (150, 1,525
- * against 0). They are certainly tabled: 405 of them carry 141, tabling for the
- * first reading, against 269 private bills.
+ * What they skip is the **preliminary round** — its tabling (104: 6,804 private
+ * bills, 0 government) and its plenum debate (150: 1,525 against 0). They are
+ * certainly tabled: 405 carry 141, tabling for the first reading, against 269
+ * private bills. So there is no single "tabling" step; a bill is laid before the
+ * House once per reading and only the preliminary one is bypassed.
  *
- * So there is no single "tabling" step. A bill is laid before the House once per
- * reading, and it is only the preliminary one that government bills bypass. The
- * ladders share a vocabulary for that reason: the government path is the tail of
- * the private path, not a different sequence.
- *
- * Private bills that reach a first reading are plotted here too, since they
- * traverse exactly these stages, and that comparison is the point.
+ * Both kinds therefore share one ladder, and the government series simply
+ * starts at this rung. Not one of the 638 has a furthest rung below it, so the
+ * earlier points are not zero — they do not exist, and the line begins here.
  */
-export const GOV_STAGES = [
-  "הונחה לקריאה ראשונה",
-  "ועדה לקראת שנייה-שלישית",
-  "הונחה לקריאה שנייה-שלישית",
-  "התקבלה בקריאה שלישית",
-] as const;
+export const GOV_JOINS_AT_RUNG = 3;
 
-export const GOV_STATUS_RUNG: Record<number, number> = {
-  141: 0, 111: 0,
-  113: 1, 178: 1, 179: 1,
-  130: 2, 131: 2, 114: 2, 117: 2,
-  118: 3,
-};
-
-export type FunnelView = "total" | "bloc" | "faction" | "origin";
+export type FunnelView = "total" | "bloc" | "faction";
 
 export function parseFunnelView(v: string | undefined): FunnelView {
-  return v === "bloc" || v === "faction" || v === "origin" ? v : "total";
+  return v === "bloc" || v === "faction" ? v : "total";
 }
 
 /**

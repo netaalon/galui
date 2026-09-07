@@ -70,9 +70,10 @@ reaches a vote and what dies there:
 - **4,705 of 7,587** bills appeared once at most in a committee or the plenum and
   were never taken up again. The highest-volume sponsors are all opposition
   members, the highest converters all coalition members.
-- Only **4.4%** of private bills reach a first reading — but of those that do,
-  **68.9%** become law, against **59.3%** of government bills. Private-bill
-  mortality is entirely front-loaded.
+- Only **4.3%** of private bills reach the tabling for a first reading — but of
+  those that do, **68.9%** become law, against **59.3%** of government bills.
+  Private-bill mortality is entirely front-loaded. Both kinds are drawn on one
+  ladder, the government line starting where its path does.
 - **19** votes were decided by two votes or fewer, and there is not one tie in
   the whole term.
 

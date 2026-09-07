@@ -45,23 +45,19 @@ export default async function PatternsPage({
 
   const coalKiller = killers.find((k) => k.sponsorBloc === "coalition");
   const oppKiller = killers.find((k) => k.sponsorBloc === "opposition");
-  const isOrigin = view === "origin";
-  const funnelStages = isOrigin ? funnel.govStages : funnel.stages;
+  const funnelStages = funnel.stages;
   const funnelSeries =
-    isOrigin
-      ? funnel.byOrigin.map((s) => ({
-          ...s,
-          label: s.key === "government" ? "ממשלתיות" : "פרטיות",
-        }))
-      : view === "bloc"
+    view === "bloc"
       ? funnel.byBloc.map((s) => ({ ...s, label: s.key === "coalition" ? "קואליציה" : "אופוזיציה" }))
       : view === "faction"
         // Party names run to 60 characters — the ש"ס entry alone is
         // "התאחדות הספרדים שומרי תורה תנועתו של מרן הרב עובדיה יוסף זצ\"ל" —
-        // which a chart legend cannot carry. The full name stays in the
-        // tooltip.
+        // which a chart legend cannot carry. The full name stays in the tooltip.
         ? funnel.byFaction.map((s) => ({ ...s, label: truncate(s.key, 22) || s.key }))
-        : [{ ...funnel.total, label: "כל ההצעות הפרטיות" }];
+        : [
+            { ...funnel.total, label: "פרטיות" },
+            { ...funnel.governmentOnLadder, label: "ממשלתיות" },
+          ];
 
   const byVolume = [...throughput].slice(0, 6);
   const byPassed = [...throughput].sort((a, b) => b.passed - a.passed).slice(0, 6);
@@ -86,23 +82,13 @@ export default async function PatternsPage({
           <CardHeader>
             <CardTitle>מה עובר את המסלול</CardTitle>
             <CardDescription>
-              {isOrigin ? (
-                <>
-                  מסלול ההצעות הממשלתיות הוא זנב המסלול הפרטי — אותם ארבעה שלבים,
-                  מהנחה לקריאה ראשונה ואילך. מה שהצעה ממשלתית מדלגת עליו הוא הסבב המוקדם
-                  כולו: ההנחה לדיון מוקדם והדיון עצמו. אין „הנחה” אחת אלא הנחה לפני
-                  כל קריאה, וגם הצעות ממשלתיות מונחות — 405 מהן לקריאה ראשונה. הצעות
-                  פרטיות שהגיעו לשלב הזה מוצגות כאן לצידן.
-                </>
-              ) : (
-                <>
-                  הצעות חוק פרטיות לפי השלב הרחוק ביותר שאליו הגיעו —{" "}
-                  {he(funnel.total.total)} הצעות, מהן {he(funnel.total.passed)} הפכו לחוק (
-                  {pct(funnel.total.passed, funnel.total.total)}%). לשם השוואה,{" "}
-                  {pct(funnel.government.passed, funnel.government.total)}% מהצעות החוק
-                  הממשלתיות התקבלו — ראו „ממשלתיות מול פרטיות” למסלולן, שהוא שונה.
-                </>
-              )}
+              הצעות חוק לפי השלב הרחוק ביותר שאליו הגיעו.{" "}
+              {he(funnel.total.total)} הצעות פרטיות, מהן {he(funnel.total.passed)} הפכו
+              לחוק ({pct(funnel.total.passed, funnel.total.total)}%), מול{" "}
+              {pct(funnel.governmentOnLadder.passed, funnel.governmentOnLadder.total)}%
+              מההצעות הממשלתיות. קו ההצעות הממשלתיות מתחיל בהנחה לקריאה ראשונה — אין
+              להן סבב מוקדם, ואף אחת מ־{he(funnel.governmentOnLadder.total)} ההצעות אינה
+              נעצרת לפני השלב הזה.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -113,7 +99,6 @@ export default async function PatternsPage({
                     ["total", "הכול"],
                     ["bloc", "לפי גוש"],
                     ["faction", "לפי סיעה"],
-                    ["origin", "ממשלתיות מול פרטיות"],
                   ] as const
                 ).map(
                   ([v, label]) => (
@@ -159,9 +144,10 @@ export default async function PatternsPage({
               stages={funnelStages}
               series={funnelSeries}
               scale={scale}
-              // The government view spans 638 down to 205 — a linear axis reads
-              // it fine and a square root would only distort it.
-              linearCounts={isOrigin}
+              // Counts span 6,915 down to 205 with both kinds on one axis, so
+              // the square root stays. The share view is the way to compare
+              // survival rates, since it rebases each line on its own start.
+              linearCounts={false}
             />
 
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
@@ -175,21 +161,22 @@ export default async function PatternsPage({
               בהצבעות עצמן.
             </p>
 
-            {isOrigin ? (
+            {view === "total" ? (
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                מכאן ואילך התמונה מתהפכת. מבין ההצעות שהגיעו לקריאה ראשונה התקבלו{" "}
+                מנקודת המפגש ואילך התמונה מתהפכת. מבין ההצעות שהגיעו להנחה לקריאה
+                ראשונה התקבלו{" "}
                 {pct(
-                  funnel.byOrigin.find((s) => s.key === "private")?.passed ?? 0,
-                  funnel.byOrigin.find((s) => s.key === "private")?.total ?? 1,
+                  funnel.total.passed,
+                  funnel.total.counts[3] || 1,
                 )}
                 % מההצעות הפרטיות מול{" "}
                 {pct(
-                  funnel.byOrigin.find((s) => s.key === "government")?.passed ?? 0,
-                  funnel.byOrigin.find((s) => s.key === "government")?.total ?? 1,
+                  funnel.governmentOnLadder.passed,
+                  funnel.governmentOnLadder.total,
                 )}
                 % מהממשלתיות. התמותה של ההצעות הפרטיות כולה בשלבים שלפני כן: רק{" "}
-                {pct(funnel.byOrigin.find((s) => s.key === "private")?.total ?? 0, funnel.total.total)}
-                % מהן מגיעות בכלל לקריאה ראשונה.
+                {pct(funnel.total.counts[3] ?? 0, funnel.total.total)}% מהן מגיעות בכלל
+                לשלב הזה.
               </p>
             ) : null}
 

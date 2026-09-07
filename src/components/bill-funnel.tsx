@@ -12,7 +12,20 @@ import {
 } from "recharts";
 import type { FunnelScale } from "@/lib/funnel";
 
-export type FunnelSeries = { key: string; label: string; counts: number[]; total: number; passed: number };
+export type FunnelSeries = {
+  key: string;
+  label: string;
+  counts: number[];
+  total: number;
+  passed: number;
+  /**
+   * First rung this series applies to. Government bills join the ladder at the
+   * first-reading tabling — not one of them has a furthest rung below it — so
+   * the earlier rungs are left null and the line simply begins there rather
+   * than being drawn flat at its own total.
+   */
+  startAt?: number;
+};
 
 /**
  * The theme's `--chart-*` ramp is greyscale, which is fine for one stacked
@@ -102,10 +115,15 @@ export function BillFunnel({
 }) {
   // One row per stage, one key per series — the shape Recharts wants.
   const rows = stages.map((stage, i) => {
-    const row: Record<string, string | number> = { stage };
+    const row: Record<string, string | number | null> = { stage };
     for (const s of series) {
+      if (i < (s.startAt ?? 0)) {
+        row[s.key] = null;
+        continue;
+      }
       const n = s.counts[i] ?? 0;
-      row[s.key] = scale === "share" ? Number(((n / (s.total || 1)) * 100).toFixed(1)) : n;
+      const base = s.counts[s.startAt ?? 0] || 1;
+      row[s.key] = scale === "share" ? Number(((n / base) * 100).toFixed(1)) : n;
     }
     return row;
   });
@@ -184,6 +202,7 @@ export function BillFunnel({
               strokeWidth={2}
               dot={{ r: 3 }}
               activeDot={{ r: 5 }}
+              connectNulls={false}
             />
           ))}
         </LineChart>
