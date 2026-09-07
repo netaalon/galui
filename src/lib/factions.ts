@@ -27,6 +27,20 @@ export const BLOC_LABELS: Record<Bloc, string> = {
 /** When a human last checked this table against reality. */
 export const BLOC_VERIFIED_ON = "2026-09-05";
 
+/**
+ * This map is a snapshot, and it is incomplete for history.
+ *
+ * It asserts a bloc for 11 factions, but 16 were held by an MK during this
+ * Knesset, so the bloc of a *past* faction membership is not always knowable
+ * from here. 27 members changed faction during the term — 4 of them across
+ * blocs (המחנה הממלכתי → הימין הממלכתי), 15 within one, and 8 via a faction
+ * missing below — and הימין הממלכתי itself changed sides, its agreement with
+ * the coalition stepping from ~10% to ~100% in 2024-Q4.
+ *
+ * So a bloc read from here is right for today and may be wrong for any dated
+ * record. See #21 for labelling that, and #20 for resolving faction-at-a-date.
+ */
+
 type FactionEntry = {
   /** KNS_Faction.FactionID */
   name: string;
