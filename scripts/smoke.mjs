@@ -55,6 +55,10 @@ async function check(path, fn) {
     /\bbothKinds=false\b/, /\bgovStartsLate=false\b/,
     /\bstageWordingHonest=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
+    /\bfactionHeadings=[0-9](?!\d)/, /\blongestFaction=(?:0|1[7-9]|[2-9]\d)(?!\d)/,
+    /\bshortShas=false\b/, /\bheadingsDistinct=false\b/, /\bshortNameSearch=0(?!\d)/,
+    /\btoggleHid=(?!1\b)/, /\btoggleRestored=false\b/, /\bchipsKept=false\b/,
+    /\btooltipItems=[0-1](?!\d)/, /\btooltipSorted=false\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
     /\bseatDupes=[1-9]/,
@@ -233,7 +237,7 @@ await check("/patterns?funnel=total&scale=count", async () => {
     .locator(".recharts-line-dots")
     .evaluateAll((gs) => gs.map((g) => g.querySelectorAll("circle").length));
   const legend = await page
-    .locator(".recharts-legend-item-text")
+    .locator('[data-testid="funnel-legend"] button')
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()));
   const both = legend.includes("פרטיות") && legend.includes("ממשלתיות");
   // Seven points for the private line, four for the government one.
@@ -246,9 +250,49 @@ await check("/patterns?funnel=faction&scale=share", async () => {
   await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
   const lines = await page.locator(".recharts-line").count();
   const legend = await page
-    .locator(".recharts-legend-item-text")
+    .locator('[data-testid="funnel-legend"] button')
     .evaluateAll((ns) => ns.map((n) => (n.textContent || "").length));
-  return `factionLines=${lines} legendTooLong=${Math.max(0, ...legend) > 26}`;
+  // Was 26, for names truncated at 22. They are short forms now.
+  return `factionLines=${lines} legendTooLong=${Math.max(0, ...legend) > 16}`;
+});
+
+// A faction can be taken out of the comparison and put back. The legend is
+// ours rather than Recharts', so the toggle has to be asserted here: hidden
+// series are dropped from the chart data, not just given `hide`, because
+// Recharts keeps a hidden line in the tooltip and in the axis domain.
+await check("/patterns?funnel=faction&scale=count", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const all = await page.locator(".recharts-line").count();
+  const chips = await page.locator('[data-testid="funnel-legend"] button').count();
+  await page.locator('[data-testid="funnel-legend"] button').first().click();
+  await page.waitForFunction((n) => document.querySelectorAll(".recharts-line").length === n - 1, all, {
+    timeout: 5000,
+  }).catch(() => {});
+  const afterHide = await page.locator(".recharts-line").count();
+  await page.locator('[data-testid="funnel-legend"] button').first().click();
+  await page.waitForFunction((n) => document.querySelectorAll(".recharts-line").length === n, all, {
+    timeout: 5000,
+  }).catch(() => {});
+  const afterShow = await page.locator(".recharts-line").count();
+  // The chip stays in the legend while its line is hidden, or there would be
+  // no way back.
+  const chipsKept = (await page.locator('[data-testid="funnel-legend"] button').count()) === chips;
+  return `toggleHid=${all - afterHide} toggleRestored=${afterShow === all} chipsKept=${chipsKept}`;
+});
+
+// The tooltip must rank the factions by size at the point being hovered.
+// Recharts sorts by `name` unless told otherwise, which alphabetised eight
+// Hebrew party names into the same order at every rung on the chart.
+await check("/patterns?funnel=faction&scale=count", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const box = await page.locator(".recharts-surface").first().boundingBox();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.6);
+  await page.waitForSelector(".recharts-tooltip-item-value", { timeout: 5000 }).catch(() => {});
+  const values = await page
+    .locator(".recharts-tooltip-item-value")
+    .evaluateAll((ns) => ns.map((n) => Number((n.textContent || "").replace(/[^\d]/g, ""))));
+  const sorted = values.every((v, i) => i === 0 || v <= values[i - 1]);
+  return `tooltipItems=${values.length} tooltipSorted=${sorted}`;
 });
 
 // The patterns page states four measures of the same finding. The assertion
@@ -383,6 +427,26 @@ await check("/questions", async () => {
 // A full name spans two columns, so it must not be matched as one string.
 await check("/members?q=%D7%A2%D7%95%D7%A4%D7%A8%20%D7%9B%D7%A1%D7%99%D7%A3", async () => {
   return `fullNameSearch=${await page.locator('a[href^="/members/"]').count()}`;
+});
+
+// Faction names are shown short everywhere. The feed files ש"ס under 61
+// characters ending in a dedication to Rabbi Ovadia Yosef, and כחול לבן under
+// a two-part name; both were being truncated mid-word.
+await check("/members?sort=faction", async () => {
+  const headings = await page
+    .locator("section h2")
+    .evaluateAll((ns) => ns.map((n) => (n.childNodes[0]?.textContent || "").trim()));
+  const longest = Math.max(0, ...headings.map((h) => h.length));
+  const shas = headings.some((h) => h === 'ש"ס');
+  // The predecessor faction is registered as plain המחנה הממלכתי and still has
+  // members, so the short form of כחול לבן must not collide with it.
+  const distinct = new Set(headings).size === headings.length;
+  return `factionHeadings=${headings.length} longestFaction=${longest} shortShas=${shas} headingsDistinct=${distinct}`;
+});
+
+// And a party has to be findable by the name the site shows for it.
+await check("/members?q=%D7%A9%22%D7%A1", async () => {
+  return `shortNameSearch=${await page.locator('a[href^="/members/"]').count()}`;
 });
 
 await check("/members/30719", async () => {

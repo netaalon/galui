@@ -1,8 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -53,6 +53,50 @@ const SERIES_COLOURS = [
 
 function colourFor(key: string, i: number) {
   return BLOC_COLOURS[key] ?? SERIES_COLOURS[i % SERIES_COLOURS.length];
+}
+
+/**
+ * Our own legend, in place of Recharts'.
+ *
+ * Recharts' legend does take an `onClick`, but its items grey themselves out
+ * only from an `inactive` flag on a payload it builds itself, and it renders
+ * inside the `dir="ltr"` wrapper the plot needs. Faction names are Hebrew and
+ * there are eight of them, so the row belongs in the page's own RTL flow.
+ */
+function ToggleLegend({
+  series,
+  colours,
+  hidden,
+  onToggle,
+}: {
+  series: FunnelSeries[];
+  colours: Map<string, string>;
+  hidden: ReadonlySet<string>;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div data-testid="funnel-legend" className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      {series.map((s) => {
+        const off = hidden.has(s.key);
+        return (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => onToggle(s.key)}
+            aria-pressed={!off}
+            className={`flex items-center gap-1.5 text-xs transition-opacity hover:opacity-100 ${off ? "opacity-40" : ""}`}
+          >
+            <span
+              aria-hidden
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ background: off ? "var(--muted-foreground)" : colours.get(s.key) }}
+            />
+            <span className={off ? "line-through" : ""}>{s.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -113,10 +157,22 @@ export function BillFunnel({
   scale: FunnelScale;
   linearCounts?: boolean;
 }) {
-  // One row per stage, one key per series — the shape Recharts wants.
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Colours come from the position in the full list, so hiding one faction does
+  // not recolour the rest.
+  const colours = new Map(series.map((s, i) => [s.key, colourFor(s.key, i)]));
+
+  const shown = series.filter((s) => !hidden.has(s.key));
+  const visible = shown.length > 0 ? shown : series;
+
+  // One row per stage, one key per series — the shape Recharts wants. Hidden
+  // series are left out of the data rather than given `hide` on their line:
+  // Recharts still lists a hidden line in the tooltip, and the y axis should
+  // rescale to what is actually drawn.
   const rows = stages.map((stage, i) => {
     const row: Record<string, string | number | null> = { stage };
-    for (const s of series) {
+    for (const s of visible) {
       if (i < (s.startAt ?? 0)) {
         row[s.key] = null;
         continue;
@@ -128,7 +184,7 @@ export function BillFunnel({
     return row;
   });
 
-  const max = Math.max(1, ...series.flatMap((s) => s.counts));
+  const max = Math.max(1, ...visible.flatMap((s) => s.counts));
   const useSqrt = scale === "count" && !linearCounts;
   const ticks =
     scale === "share"
@@ -138,75 +194,94 @@ export function BillFunnel({
         : linearTicks(max);
 
   return (
-    // Recharts lays its axes out physically, so the plot stays LTR and the
-    // legislative sequence reads left to right, as charts do in Hebrew UIs.
-    <div dir="ltr" className="h-80 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 56, left: -8 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-          <XAxis
-            dataKey="stage"
-            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            angle={-32}
-            textAnchor="end"
-            interval={0}
-            height={56}
-          />
-          <YAxis
-            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            // Square root, not log. The first rung is 33x the last, so a
-            // linear axis flattens the tail onto the baseline — but log
-            // overcorrects: it puts 30 at 38% of the height, mid-graph, and
-            // squeezes 300 and 600 to within 8 points of each other despite one
-            // being double the other. Sqrt puts 30 at 7% and keeps that same
-            // separation, spreading the whole lower range instead of the top.
-            //
-            // It also plots zero, which log cannot. רע"ם reaches the last two
-            // rungs 0 times, and on a log axis that dropped the series and left
-            // the entire party view blank.
-            scale={useSqrt ? "sqrt" : "linear"}
-            domain={scale === "count" ? [0, ticks[ticks.length - 1]] : [0, 100]}
-            ticks={ticks}
-            // Without this Recharts thins the labels on its own and drops
-            // exactly the low ones this axis exists to show.
-            interval={0}
-            width={52}
-            allowDataOverflow={false}
-            tickFormatter={(v: number) => (scale === "share" ? `${v}%` : v.toLocaleString("he-IL"))}
-          />
-          <Tooltip
-            contentStyle={{
-              background: "var(--popover)",
-              border: "1px solid var(--border)",
-              borderRadius: "0.5rem",
-              fontSize: "0.8125rem",
-            }}
-            labelStyle={{ color: "var(--foreground)" }}
-            formatter={(value, name) => [
-              scale === "share" ? `${value}%` : Number(value).toLocaleString("he-IL"),
-              series.find((s) => s.key === name)?.label ?? String(name),
-            ]}
-          />
-          <Legend
-            verticalAlign="top"
-            height={28}
-            formatter={(value) => series.find((s) => s.key === value)?.label ?? value}
-            wrapperStyle={{ fontSize: "0.75rem" }}
-          />
-          {series.map((s, i) => (
-            <Line
-              key={s.key}
-              type="linear"
-              dataKey={s.key}
-              stroke={colourFor(s.key, i)}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-              activeDot={{ r: 5 }}
-              connectNulls={false}
+    <div>
+      <ToggleLegend
+        series={series}
+        colours={colours}
+        hidden={hidden}
+        onToggle={(key) =>
+          setHidden((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(key)) next.add(key);
+            // Hiding every series is the one move we refuse — an empty plot
+            // reads as a broken chart.
+            return next.size === series.length ? prev : next;
+          })
+        }
+      />
+      {/* Recharts lays its axes out physically, so the plot stays LTR and the
+          legislative sequence reads left to right, as charts do in Hebrew UIs. */}
+      <div dir="ltr" className="h-80 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 56, left: -8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+            <XAxis
+              dataKey="stage"
+              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+              angle={-32}
+              textAnchor="end"
+              interval={0}
+              height={56}
             />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            <YAxis
+              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+              // Square root, not log. The first rung is 33x the last, so a
+              // linear axis flattens the tail onto the baseline — but log
+              // overcorrects: it puts 30 at 38% of the height, mid-graph, and
+              // squeezes 300 and 600 to within 8 points of each other despite one
+              // being double the other. Sqrt puts 30 at 7% and keeps that same
+              // separation, spreading the whole lower range instead of the top.
+              //
+              // It also plots zero, which log cannot. רע"ם reaches the last two
+              // rungs 0 times, and on a log axis that dropped the series and left
+              // the entire party view blank.
+              scale={useSqrt ? "sqrt" : "linear"}
+              domain={scale === "count" ? [0, ticks[ticks.length - 1]] : [0, 100]}
+              ticks={ticks}
+              // Without this Recharts thins the labels on its own and drops
+              // exactly the low ones this axis exists to show.
+              interval={0}
+              width={52}
+              allowDataOverflow={false}
+              tickFormatter={(v: number) => (scale === "share" ? `${v}%` : v.toLocaleString("he-IL"))}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "var(--popover)",
+                border: "1px solid var(--border)",
+                borderRadius: "0.5rem",
+                fontSize: "0.8125rem",
+              }}
+              labelStyle={{ color: "var(--foreground)" }}
+              // Descending by value. The default is `name`, which alphabetises
+              // eight faction names identically at every point on the chart and
+              // so says nothing about the point you are hovering. Sorting ascending
+              // on the negated value puts the largest first; a rung a series never
+              // reached carries no value and sorts to the end.
+              itemSorter={(item) => {
+                const v = Number(item.value);
+                return Number.isFinite(v) ? -v : Number.POSITIVE_INFINITY;
+              }}
+              formatter={(value, name) => [
+                scale === "share" ? `${value}%` : Number(value).toLocaleString("he-IL"),
+                series.find((s) => s.key === name)?.label ?? String(name),
+              ]}
+            />
+            {visible.map((s) => (
+              <Line
+                key={s.key}
+                type="linear"
+                dataKey={s.key}
+                stroke={colours.get(s.key)}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
