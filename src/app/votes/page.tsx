@@ -2,9 +2,11 @@ import Link from "next/link";
 import { EmptyState, PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { VoteKindBadge } from "@/components/vote-kind-badge";
 import { OutcomeBadge, VoteTally } from "@/components/vote-tally";
 import { formatDateTime, truncate } from "@/lib/format";
 import { getVoteStats, listVotes } from "@/lib/queries";
+import { VOTE_KIND_LABELS, VOTE_KIND_NOTES, parseVoteKind } from "@/lib/vote-kind";
 
 export const dynamic = "force-dynamic";
 
@@ -15,16 +17,27 @@ const PAGE_SIZE = 50;
 export default async function VotesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; kind?: string }>;
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
   const q = sp.q?.trim() || undefined;
+  const kind = parseVoteKind(sp.kind);
 
   const [{ rows, total }, stats] = await Promise.all([
-    listVotes({ q, take: PAGE_SIZE, skip: (page - 1) * PAGE_SIZE }),
+    listVotes({ q, kind, take: PAGE_SIZE, skip: (page - 1) * PAGE_SIZE }),
     getVoteStats(),
   ]);
+
+  // Filter links keep the search term and drop the page, since page 7 of one
+  // filter is nowhere in another.
+  const hrefFor = (k: string | null) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (k) params.set("kind", k);
+    const s = params.toString();
+    return s ? `/votes?${s}` : "/votes";
+  };
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -40,10 +53,40 @@ export default async function VotesPage({
         המצביעים נגזר מהשם שברשומת ההצבעה, שכן מזהה חבר הכנסת בטבלת ההצבעות שייך
         למרחב מזהים נפרד; שם שאינו מזוהה בוודאות נותר ללא קישור. הצבעות על הצעות
         חוק מקושרות גם להצעה עצמה — {(stats.total - stats.onBills).toLocaleString("he-IL")} מההצבעות
-        הוכרעו בעניין אחר, כגון הצעה לסדר היום או פעולה על פי חוק.
+        הוכרעו בעניין אחר, כגון הצעה לסדר היום או פעולה על פי חוק. הסיווג נגזר
+        אצלנו: לרשומת ההצבעה אין כלל שדה סוג, והוא נלמד מרשומת הפריט במליאה,
+        ממנשא ההצעות לסדר היום, ובהצעות אי־אמון — מנוסח הכותרת, שכן השדה שאמור
+        לסמן אותן ריק בכל ההצבעות.
       </p>
 
+      {/* Filter by what was decided. The counts are the whole point: they say
+          how lopsided the plenum's business is before you click anything. */}
+      <nav aria-label="סינון לפי סוג ההצבעה" className="mb-6 flex flex-wrap gap-2">
+        <Link
+          href={hrefFor(null)}
+          className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+            kind ? "hover:bg-secondary" : "border-primary bg-primary/10 font-medium"
+          }`}
+        >
+          הכול ({stats.total.toLocaleString("he-IL")})
+        </Link>
+        {stats.byKind.map((k) => (
+          <Link
+            key={k.kind}
+            href={hrefFor(k.kind)}
+            title={VOTE_KIND_NOTES[k.kind]}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              kind === k.kind ? "border-primary bg-primary/10 font-medium" : "hover:bg-secondary"
+            }`}
+          >
+            {VOTE_KIND_LABELS[k.kind]} ({k.count.toLocaleString("he-IL")})
+          </Link>
+        ))}
+      </nav>
+
       <form method="get" className="mb-6">
+        {/* Searching inside a filter must keep the filter. */}
+        {kind ? <input type="hidden" name="kind" value={kind} /> : null}
         <input
           type="search"
           name="q"
@@ -53,6 +96,10 @@ export default async function VotesPage({
           className="w-full rounded-md border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-md"
         />
       </form>
+
+      {kind && VOTE_KIND_NOTES[kind] ? (
+        <p className="mb-4 text-xs text-muted-foreground">{VOTE_KIND_NOTES[kind]}.</p>
+      ) : null}
 
       {rows.length === 0 ? (
         <EmptyState>לא נמצאו הצבעות התואמות לחיפוש.</EmptyState>
@@ -86,11 +133,7 @@ export default async function VotesPage({
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>{formatDateTime(v.voteDateTime)}</span>
                       {v.methodDesc ? <Badge variant="outline">{v.methodDesc}</Badge> : null}
-                      {v.isNoConfidence ? (
-                        <Badge variant="secondary" className="border-0 bg-rose-500/12 text-rose-700 dark:text-rose-400">
-                          אי־אמון
-                        </Badge>
-                      ) : null}
+                      <VoteKindBadge kind={v.kind} />
                     </div>
 
                     <VoteTally tally={v} className="mt-3" />
@@ -102,13 +145,13 @@ export default async function VotesPage({
 
           {pages > 1 ? (
             <nav className="mt-6 flex items-center justify-between gap-3 text-sm" aria-label="ניווט בין עמודים">
-              <PageLink q={q} page={page - 1} disabled={page <= 1}>
+              <PageLink q={q} kind={kind} page={page - 1} disabled={page <= 1}>
                 הקודם
               </PageLink>
               <span className="text-muted-foreground tabular-nums">
                 {page.toLocaleString("he-IL")} / {pages.toLocaleString("he-IL")}
               </span>
-              <PageLink q={q} page={page + 1} disabled={page >= pages}>
+              <PageLink q={q} kind={kind} page={page + 1} disabled={page >= pages}>
                 הבא
               </PageLink>
             </nav>
@@ -121,11 +164,13 @@ export default async function VotesPage({
 
 function PageLink({
   q,
+  kind,
   page,
   disabled,
   children,
 }: {
   q?: string;
+  kind?: string;
   page: number;
   disabled: boolean;
   children: React.ReactNode;
@@ -135,6 +180,7 @@ function PageLink({
   }
   const params = new URLSearchParams();
   if (q) params.set("q", q);
+  if (kind) params.set("kind", kind);
   if (page > 1) params.set("page", String(page));
   const query = params.toString();
   return (

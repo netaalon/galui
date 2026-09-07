@@ -91,6 +91,14 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   feed denormalises onto each result row; an ambiguous name stays null rather
   than being guessed, and the ETL reports the yield. `PlenumVote.plenumSessionId`
   *is* a real key and a real relation.
+- `PlenumVote.kind` — derived, and the reason it has to be is that
+  `KNS_PlenumVote` carries no item-type column at all. `bill` comes from the
+  feed's own typing, `motion` from a `KNS_Agenda` row, `statutory` and
+  `plenum_item` from the remaining `ItemTypeID`s — and `no_confidence` from the
+  title, because `IsNoConfidenceInGov` is true on 4 of 36,181 votes upstream
+  while this term held 220 such motions. 7 votes stay `other`, shown as
+  "לא מסווג" rather than folded into a neighbouring bucket. `Agenda` holds the
+  motions themselves, 798 for the term.
 - `PlenumVote.billId` — also derived, and for a different reason: `itemId` is
   whatever the vote was about, which is a bill only 6,762 times out of 7,536.
   The type comes from `KNS_PlmSessionItem.ItemTypeID`, never from assuming.

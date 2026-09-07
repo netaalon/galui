@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { VoteKindBadge } from "@/components/vote-kind-badge";
 import { OutcomeBadge, RESULT_LABELS, VoteTally } from "@/components/vote-tally";
 import { shortFactionName } from "@/lib/factions";
 import { formatDateTime, fullName } from "@/lib/format";
@@ -38,9 +39,7 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
         <span>{formatDateTime(vote.voteDateTime)}</span>
         {vote.methodDesc ? <Badge variant="outline">{vote.methodDesc}</Badge> : null}
         {vote.statusDesc ? <Badge variant="outline">{vote.statusDesc}</Badge> : null}
-        {vote.isNoConfidence ? (
-          <Badge variant="secondary" className="border-0 bg-rose-500/12 text-rose-700 dark:text-rose-400">אי־אמון</Badge>
-        ) : null}
+        <VoteKindBadge kind={vote.kind} />
       </div>
 
       <Card className="mb-6">
@@ -115,9 +114,56 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
                     {vote.bill.name ?? "הצעת החוק שבה הוכרע"}
                   </Link>
                 </p>
+              ) : vote.agenda ? (
+                /* A motion for the agenda. The subtype matters: an urgent one
+                   needs the Speaker's approval to be tabled at all, and a
+                   "כוללת" motion was merged into a joint debate — which is also
+                   why it has no proposer, the feed records one only on the
+                   standalone ones. */
+                <div className="space-y-1">
+                  <p className="font-medium">{vote.agenda.name ?? "הצעה לסדר היום"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {[
+                      vote.agenda.subTypeDesc ? `הצעה ${vote.agenda.subTypeDesc}` : null,
+                      vote.agenda.classificationDesc,
+                      vote.agenda.status?.desc,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  {vote.agenda.initiator ? (
+                    <p className="text-xs text-muted-foreground">
+                      הציע/ה{" "}
+                      <Link
+                        href={`/members/${vote.agenda.initiator.personId}`}
+                        className="text-primary hover:underline"
+                      >
+                        {fullName(vote.agenda.initiator)}
+                      </Link>
+                      {vote.agenda.initiator.factionName
+                        ? ` · ${shortFactionName(vote.agenda.initiator.factionName)}`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {vote.agenda.committee?.committeeId ? (
+                    <p className="text-xs text-muted-foreground">
+                      הועברה ל
+                      <Link
+                        href={`/committees/${vote.agenda.committee.committeeId}`}
+                        className="text-primary hover:underline"
+                      >
+                        {vote.agenda.committee.name ?? "ועדה"}
+                      </Link>
+                    </p>
+                  ) : null}
+                  {vote.agenda.postponementReasonDesc ? (
+                    <p className="text-xs text-muted-foreground">{vote.agenda.postponementReasonDesc}</p>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-muted-foreground">
-                  ההצבעה אינה על הצעת חוק, ולכן אין קישור להצעה.
+                  ההצבעה אינה על הצעת חוק ואינה על הצעה לסדר היום, ולכן אין
+                  רשומה נפרדת לקשר אליה.
                 </p>
               )}
               {vote.session ? (

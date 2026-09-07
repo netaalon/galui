@@ -103,6 +103,7 @@ The ETL (`scripts/fetch-odata.ts`) mirrors OData entities into local tables:
 | `KNS_DocumentQuery` | `QuestionDocument` | The question text and the minister's reply |
 | `KNS_PlenumVote` | `PlenumVote` | Plenum votes, with tallies counted at ingest |
 | `KNS_PlenumVoteResult` | `PlenumVoteResult` | How each member voted. **Standalone** — see below |
+| `KNS_Agenda` | `Agenda` | Motions for the agenda — the other thing the plenum votes on |
 | `KNS_GovMinistry` | `GovMinistry` | |
 | `KNS_Status`, `KNS_ItemType`, `KNS_Faction` | `Status`, — , `Faction` | Label lookups |
 
@@ -217,10 +218,13 @@ Things worth knowing, all verified against the live service:
   and all 526,483 rows; the ETL prints the yield, and every member's votes were
   independently checked to fall inside their own term of service.
 - **A vote's `itemId` is not always a bill**, and `KNS_PlenumVote` does not say
-  what it is. 774 of the term's votes decided a motion, a statutory action or a
-  plenum item. The type comes from `KNS_PlmSessionItem.ItemTypeID`, so 6,762
-  votes link to a bill across 1,645 bills and the rest are left unlinked rather
-  than guessed at.
+  what it is — it has no item-type column at all. 6,762 of the term's votes link
+  to a bill across 1,645 bills, typed by `KNS_PlmSessionItem.ItemTypeID` rather
+  than guessed at. The other 774 are classified into 382 motions for the agenda,
+  220 no-confidence motions, 145 statutory actions, 20 plenum items and 7 that
+  no source classifies, and the votes list can be filtered by that. The
+  no-confidence ones are found by their title formula, because
+  `IsNoConfidenceInGov` is true on 4 of 36,181 votes upstream and 0 of ours.
 - **Government bills have no MK initiators** — they are submitted by a ministry,
   so `KNS_BillInitiator` is legitimately empty for them (100% of private bills
   have sponsors; only 10% of government bills do). The bill page says so rather

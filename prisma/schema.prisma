@@ -68,6 +68,8 @@ model Person {
   voteResults PlenumVoteResult[]
   participations CommitteeParticipant[]
   questions  Question[]
+  /// Motions for the agenda this person proposed.
+  agendasInitiated Agenda[] @relation("AgendaInitiator")
 
   @@index([isMk, knessetNum])
   @@index([bloc])
@@ -129,6 +131,7 @@ model Committee {
 
   sessions CommitteeSession[]
   bills    Bill[]
+  agendas  Agenda[]
 
   parent        Committee?  @relation("Subcommittees", fields: [parentCommitteeId], references: [committeeId], onDelete: SetNull)
   subcommittees Committee[] @relation("Subcommittees")
@@ -172,6 +175,7 @@ model Status {
   sessionItems SessionItem[]
   plenumItems  PlenumSessionItem[]
   questions    Question[]
+  agendas      Agenda[]
 }
 
 /// KNS_Bill
@@ -568,6 +572,56 @@ model QuestionDocument {
 /// rows holding 7,536 distinct votes, nine ids repeating with identical content
 /// (`Id eq 44998` returns four rows on its own). Upserting on it is correct, as
 /// the duplicates carry the same data, but never read a row count as a vote count.
+/// KNS_Agenda — motions for the agenda (הצעות לסדר היום) and quick debates.
+///
+/// This is the other thing the plenum votes on. 6,762 of the term's 7,536 votes
+/// decided a bill; of the remaining 774, 375 decided one of these 798 rows.
+///
+/// **Agenda ids and bill ids share one numeric space.** Bills run 478,929 to
+/// 2,245,298 and these run 2,199,266 to 2,244,999, interleaved. No id is in both
+/// sets today (checked: 0 of 798), but nothing upstream guarantees that, so
+/// neither `PlenumVote.billId` nor `PlenumVote.agendaId` is derived from the id
+/// alone — both go through the feed's own typing in KNS_PlmSessionItem.
+///
+/// Two columns the feed declares and never fills, so they are not mirrored:
+/// `GovRecommendationID`/`Desc` (the government's position on the motion) and
+/// `LeadingAgendaID`, which is null on all 798 — including the 614 marked
+/// "כוללת", the ones merged into a joint debate, where it is the only thing that
+/// would say what they were merged into.
+model Agenda {
+  agendaId   Int  @id
+  knessetNum Int?
+  number     Int?
+  name       String?
+  /// דיון מהיר (383) · דחופה (241) · רגילה (159) · בתקופת פגרה (15).
+  subTypeId   Int?
+  subTypeDesc String?
+  /// עצמאית — debated on its own — or כוללת, merged into a joint debate.
+  classificationId   Int?
+  classificationDesc String?
+  statusId Int?
+  /// Set on exactly the 184 "עצמאית" rows and none of the 614 "כוללת" ones, so
+  /// a merged motion has no recorded proposer.
+  initiatorPersonId Int?
+  /// The committee handling it (668 of 798).
+  committeeId Int?
+  /// Why it was dropped: ההצעה לא התקבלה (31), the member accepted the
+  /// minister's answer (14), the member was absent (4).
+  postponementReasonDesc String?
+  presidentDecisionDate  DateTime?
+  lastUpdatedDate        DateTime?
+
+  status    Status?     @relation(fields: [statusId], references: [statusId], onDelete: SetNull)
+  initiator Person?     @relation("AgendaInitiator", fields: [initiatorPersonId], references: [personId], onDelete: SetNull)
+  committee Committee?  @relation(fields: [committeeId], references: [committeeId], onDelete: SetNull)
+  votes     PlenumVote[]
+
+  @@index([knessetNum])
+  @@index([initiatorPersonId])
+  @@index([committeeId])
+  @@index([subTypeDesc])
+}
+
 model PlenumVote {
   voteId          Int       @id
   voteDateTime    DateTime?
@@ -579,12 +633,25 @@ model PlenumVote {
   /// Set only where `itemId` is a bill, per the feed's own typing in
   /// KNS_PlmSessionItem (ItemTypeID 2). Derived; see resolveVoteBills().
   billId          Int?
+  /// Set where `itemId` is a motion for the agenda. Derived the same way and
+  /// with the same care, because the two id spaces interleave — see Agenda.
+  agendaId        Int?
   ordinal         Int?
   methodDesc      String?
   statusDesc      String?
   title           String?
   subject         String?
-  isNoConfidence  Boolean   @default(false)
+  /// What was actually being decided: bill · no_confidence · motion ·
+  /// statutory · plenum_item · other. **Derived** — see resolveVoteKinds().
+  ///
+  /// The feed cannot answer this on its own. KNS_PlenumVote has no item-type
+  /// column at all, so the type comes from KNS_PlmSessionItem, and 395 votes
+  /// have no row there. `IsNoConfidenceInGov` exists and is dead: true on 4 of
+  /// 36,181 votes upstream and 0 of ours, while this term held 219
+  /// no-confidence motions. Those are found by their title, which is a fixed
+  /// parliamentary formula; the column that should have said so was dropped
+  /// rather than mirrored as false.
+  kind            String    @default("other")
 
   /// Tallies counted at ingest. The results table holds ~526k rows for one
   /// term, and re-aggregating it on every page render would be silly.
@@ -598,10 +665,13 @@ model PlenumVote {
 
   session PlenumSession? @relation(fields: [plenumSessionId], references: [plenumSessionId], onDelete: SetNull)
   bill    Bill?          @relation(fields: [billId], references: [billId], onDelete: SetNull)
+  agenda  Agenda?        @relation(fields: [agendaId], references: [agendaId], onDelete: SetNull)
   results PlenumVoteResult[]
 
   @@index([voteDateTime])
   @@index([billId])
+  @@index([agendaId])
+  @@index([kind])
   @@index([plenumSessionId])
   @@index([itemId])
 }

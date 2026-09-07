@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { factionNamesMatchingShort } from "@/lib/factions";
+import type { VoteKind } from "@/lib/vote-kind";
 import type { MemberSort } from "@/lib/member-sort";
 import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
 import { FUNNEL_STAGES, GOV_JOINS_AT_RUNG, STATUS_RUNG } from "@/lib/funnel";
@@ -843,12 +844,14 @@ export function voteOutcome(v: { forCount: number; againstCount: number; totalCo
 
 export async function listVotes({
   q,
+  kind,
   take = 50,
   skip = 0,
-}: { q?: string; take?: number; skip?: number } = {}) {
-  const where = q?.trim()
-    ? { OR: [{ title: { contains: q.trim() } }, { subject: { contains: q.trim() } }] }
-    : {};
+}: { q?: string; kind?: VoteKind; take?: number; skip?: number } = {}) {
+  const where: Prisma.PlenumVoteWhereInput = {
+    ...(q?.trim() ? { OR: [{ title: { contains: q.trim() } }, { subject: { contains: q.trim() } }] } : {}),
+    ...(kind ? { kind } : {}),
+  };
 
   const [rows, total] = await Promise.all([
     prisma.plenumVote.findMany({
@@ -863,16 +866,21 @@ export async function listVotes({
 }
 
 export async function getVoteStats() {
-  const [total, onBills, earliest, latest, agg] = await Promise.all([
+  const [total, onBills, earliest, latest, agg, kinds] = await Promise.all([
     prisma.plenumVote.count(),
     prisma.plenumVote.count({ where: { billId: { not: null } } }),
     prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "asc" }, select: { voteDateTime: true } }),
     prisma.plenumVote.findFirst({ orderBy: { voteDateTime: "desc" }, select: { voteDateTime: true } }),
     prisma.plenumVote.aggregate({ _sum: { totalCount: true }, _avg: { totalCount: true } }),
+    prisma.plenumVote.groupBy({ by: ["kind"], _count: { kind: true } }),
   ]);
   return {
     total,
     onBills,
+    /** Vote count per derived kind, largest first. */
+    byKind: kinds
+      .map((k) => ({ kind: k.kind as VoteKind, count: k._count.kind }))
+      .sort((a, b) => b.count - a.count),
     earliest: earliest?.voteDateTime ?? null,
     latest: latest?.voteDateTime ?? null,
     ballots: agg._sum.totalCount ?? 0,
@@ -886,6 +894,13 @@ export async function getVote(voteId: number) {
     include: {
       session: { select: { plenumSessionId: true, name: true, startDate: true } },
       bill: { select: { billId: true, name: true, subTypeDesc: true } },
+      agenda: {
+        include: {
+          status: { select: { desc: true } },
+          committee: { select: { committeeId: true, name: true } },
+          initiator: { select: { personId: true, firstName: true, lastName: true, factionName: true } },
+        },
+      },
       results: {
         orderBy: [{ resultCode: "asc" }, { lastName: "asc" }],
         include: {

@@ -321,12 +321,19 @@ repeated calls, unlike `KNS_PlmSessionItem`.
   no type information anywhere match no bill at all. The result is plausible on
   its face — the most-voted bills are the 2023 budget (212), the 2024
   supplementary budget (157) and Basic Law: The Judiciary amendment 3 (148).
+  What the other 774 decided, once `KNS_Agenda` is ingested and the title
+  formulas are applied: **382 motions** for the agenda, **220 no-confidence
+  motions**, **145 statutory actions**, **20 plenum items**, and **7** that no
+  source classifies. See `resolveVoteKinds()`.
+- **`IsNoConfidenceInGov` is dead.** True on **4 of 36,181** votes across all
+  Knessets and 0 of the term's 7,536, while Knesset 25 alone held 220
+  no-confidence motions. They are findable only by their title, which is a
+  fixed parliamentary formula — and needs three spellings: about half omit
+  "בממשלה" entirely ("הצעה להביע אי אמון מטעם סיעת …"), one uses a hyphen, and
+  one is a typo, "אי אימון". Do not build anything on the flag.
 - **Scope votes by `SessionID`, not by date.** The table has no `KnessetNum`;
   matching against the sittings already ingested returns exactly the same 7,557
   votes as `VoteDateTime ge 2022-11-15` and needs no hard-coded term start.
-- **85 votes have no results at all**, and that is the feed's own answer, not a
-  gap: `VoteID eq 39381` returns zero result rows upstream. Expect a tally of
-  nothing for a small tail of votes.
 - **85 votes have no results at all**, and that is the feed's own answer rather
   than a gap: `VoteID eq 39381` returns zero result rows upstream. Expect an
   empty tally for a small tail of votes.
@@ -343,6 +350,34 @@ repeated calls, unlike `KNS_PlmSessionItem`.
   only once everything is in memory, so the table read 0 for the whole run and a
   late failure would have discarded all of it. The stage skips votes that
   already hold results, so an interrupted run resumes.
+
+## Motions for the agenda live in `KNS_Agenda`
+
+The other thing the plenum votes on: 22,072 rows, **798 in Knesset 25**, of
+which 352 have at least one vote. Not `KNS_PlmAgendaItem` — that URL 404s.
+
+- **Its ids share one numeric space with bill ids.** Bills run 478,929 to
+  2,245,298 and these run 2,199,266 to 2,244,999, interleaved. No id is in both
+  sets today (0 of 798), but nothing upstream promises that, so link a vote
+  through `KNS_PlmSessionItem.ItemTypeID` rather than by testing which table the
+  id happens to be in.
+- `SubTypeDesc`: דיון מהיר (383) · דחופה (241) · רגילה (159) · בתקופת פגרה (15).
+  An urgent motion needs the Speaker's approval to be tabled at all, which is
+  why `PresidentDecisionDate` is set on 189 rows.
+- `ClassificationDesc` is כוללת (614) or עצמאית (184) — merged into a joint
+  debate, or debated alone. **`InitiatorPersonID` is set on exactly the 184
+  עצמאית rows and none of the 614 כוללת ones**, so a merged motion has no
+  recorded proposer. That is the data, not a gap.
+- **Two columns are declared and never filled**: `GovRecommendationID`/`Desc`,
+  which would carry the government's position, and `LeadingAgendaID`, null on
+  all 798 — including the כוללת rows, where it is the only field that would say
+  what they were merged into.
+- All 11 status ids it uses (304, 305, 307, 309, 310, 311, 315, 335, 337, 338,
+  339) are already in `KNS_Status`; no separate vocabulary to fetch.
+- `PostopenmentReasonDesc` — upstream spelling — says why a motion was dropped:
+  ההצעה לא התקבלה (31), the member accepted the minister's answer (14), the
+  member was absent from the debate (4).
+- `KNS_DocumentAgenda` exists (27,537 rows) and is **not** ingested.
 
 ## Referential integrity is not guaranteed by arrival order
 

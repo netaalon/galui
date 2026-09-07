@@ -42,6 +42,7 @@ interface RawQuery { Id: number; Number: number | null; KnessetNum: number | nul
  * Lower-cased on purpose: unlike every other entity here, this one is not
  * served through OData. See ingestQuestionDocuments.
  */
+interface RawAgenda { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; SubTypeID: number | null; SubTypeDesc: string | null; ClassificationID: number | null; ClassificationDesc: string | null; StatusID: number | null; InitiatorPersonID: number | null; CommitteeID: number | null; PostopenmentReasonDesc: string | null; PresidentDecisionDate: string | null; LastUpdatedDate: string | null }
 interface RawQueryDocument { id: number; queryID: number; groupTypeID: number | null; groupTypeDesc: string | null; applicationDesc: string | null; filePath: string | null; lastUpdatedDate: string | null }
 interface RawBillDocument { Id: number; BillID: number; GroupTypeID: number | null; GroupTypeDesc: string | null; ApplicationID: number | null; ApplicationDesc: string | null; FilePath: string | null; LastUpdatedDate: string | null }
 interface RawPlenumSession { Id: number; Number: number | null; KnessetNum: number | null; Name: string | null; StartDate: string | null; FinishDate: string | null; IsSpecialMeeting: boolean | null; LastUpdatedDate: string | null }
@@ -79,6 +80,16 @@ const PLENUM_AGENDA_LIMIT = arg("plenum", undefined);
 
 /** Re-fetch vote results for votes that already have them. */
 const REFETCH_VOTE_RESULTS = process.argv.includes("--revotes");
+
+/**
+ * Run only the agenda stages and the vote classification.
+ *
+ * Both read tables that are already in the database — agendas reference people,
+ * committees and statuses, and the classification reads back the votes — so
+ * they can run alone. Nothing else in the ETL depends on them, which is why
+ * this shortcut is safe here and would not be for, say, bills.
+ */
+const AGENDAS_ONLY = process.argv.includes("--agendas-only");
 
 /** KNS_Position ids that mean "this person is a Knesset Member". */
 const POSITION_MK = [43, 61]; // חבר הכנסת / חברת הכנסת
@@ -1037,6 +1048,129 @@ async function resolveVoteBills() {
 // Written questions (שאילתות)
 // ---------------------------------------------------------------------------
 
+/**
+ * KNS_Agenda — motions for the agenda (הצעות לסדר היום) and quick debates.
+ *
+ * The second thing the plenum votes on, and until this stage existed the votes
+ * that decided one showed a title and nothing else. 798 rows for this term.
+ *
+ * The set is `KNS_Agenda`, not the `KNS_PlmAgendaItem` the name suggests — that
+ * URL 404s. Two of its columns are declared and never filled, so they are not
+ * mirrored: `GovRecommendationID`/`Desc`, which would have carried the
+ * government's position, and `LeadingAgendaID`, null on all 798 including the
+ * 614 merged into a joint debate, where it is the only thing that would say
+ * what they were merged into.
+ */
+async function ingestAgendas(): Promise<number[]> {
+  step(`KNS_Agenda — motions for the agenda, Knesset ${KNESSET}`);
+  const rows = await fetchAll<RawAgenda>("KNS_Agenda", { filter: `KnessetNum eq ${KNESSET}` });
+
+  const knownPeople = new Set((await prisma.person.findMany({ select: { personId: true } })).map((p) => p.personId));
+  const knownCommittees = new Set((await prisma.committee.findMany({ select: { committeeId: true } })).map((c) => c.committeeId));
+  const knownStatuses = new Set((await prisma.status.findMany({ select: { statusId: true } })).map((s) => s.statusId));
+
+  let unknownPerson = 0;
+  let unknownCommittee = 0;
+  const n = await writeBatched(rows, (r) => {
+    if (r.InitiatorPersonID != null && !knownPeople.has(r.InitiatorPersonID)) unknownPerson++;
+    if (r.CommitteeID != null && !knownCommittees.has(r.CommitteeID)) unknownCommittee++;
+
+    const data = {
+      agendaId: r.Id, knessetNum: r.KnessetNum, number: r.Number, name: r.Name?.trim() ?? null,
+      subTypeId: r.SubTypeID, subTypeDesc: r.SubTypeDesc?.trim() ?? null,
+      classificationId: r.ClassificationID, classificationDesc: r.ClassificationDesc?.trim() ?? null,
+      statusId: r.StatusID != null && knownStatuses.has(r.StatusID) ? r.StatusID : null,
+      initiatorPersonId: r.InitiatorPersonID != null && knownPeople.has(r.InitiatorPersonID) ? r.InitiatorPersonID : null,
+      committeeId: r.CommitteeID != null && knownCommittees.has(r.CommitteeID) ? r.CommitteeID : null,
+      // Upstream spelling. "Postopenment" is theirs, not a typo here.
+      postponementReasonDesc: r.PostopenmentReasonDesc?.trim() ?? null,
+      presidentDecisionDate: parseDate(r.PresidentDecisionDate),
+      lastUpdatedDate: parseDate(r.LastUpdatedDate),
+    };
+    return prisma.agenda.upsert({ where: { agendaId: r.Id }, create: data, update: data });
+  });
+
+  await record("KNS_Agenda", rows.length, n, true);
+  const parts = [
+    unknownPerson ? `${unknownPerson} from a person we do not hold` : "",
+    unknownCommittee ? `${unknownCommittee} for a committee we do not hold` : "",
+  ].filter(Boolean);
+  done(`${n} agenda motions${parts.length ? ` (${parts.join(", ")})` : ""}`);
+  return rows.map((r) => r.Id);
+}
+
+/**
+ * What each vote was actually deciding.
+ *
+ * Derived, and it has to be: `KNS_PlenumVote` carries no item-type column at
+ * all, so the type comes from `KNS_PlmSessionItem` — and 395 of this term's
+ * votes have no row there, including every no-confidence motion.
+ *
+ * The order below is the precedence, strictest evidence first:
+ *
+ * 1. `bill` — `billId` is set, which resolveVoteBills() only does through the
+ *    feed's own ItemTypeID.
+ * 2. `no_confidence` — matched on the title, because the column that should
+ *    answer this is dead: `IsNoConfidenceInGov` is true on 4 of 36,181 votes
+ *    upstream and 0 of ours, while this term held 220 such motions. The title
+ *    is a fixed formula, which is why a text match is defensible here and
+ *    almost nowhere else in this file. Three spellings are needed and each was
+ *    found by inspecting what the first pattern missed: about half the titles
+ *    read "הצעה להביע אי אמון מטעם סיעת …" with no "בממשלה" at all (17 of
+ *    them), one uses a hyphen, and one is a plain typo — "אי אימון".
+ * 3. `motion` — `itemId` is a KNS_Agenda row, checked the same way billId is:
+ *    the two id spaces interleave, so an id match alone is not enough.
+ * 4. `statutory` / `plenum_item` — the feed's remaining item types, 6000
+ *    ("פעולה על פי חוק", which covers electing the Speaker and setting up
+ *    special committees) and 9.
+ * 5. `motion` again, by title, for the 7 votes whose title says outright that
+ *    it is a motion for the agenda but whose item is in no table — not even
+ *    KNS_Agenda unfiltered. `agendaId` stays null, so the vote page still says
+ *    there is no record to link to.
+ * 6. `other` — no evidence either way. 7 votes: one decision on a VAT order,
+ *    and six whose title is a bare quoted subject. Left unclassified rather
+ *    than guessed.
+ */
+async function resolveVoteKinds() {
+  step("Classifying what each vote decided");
+
+  const agendaIds = await prisma.$executeRaw`
+    UPDATE "PlenumVote"
+       SET "agendaId" = "itemId"
+     WHERE "itemId" IS NOT NULL
+       AND "billId" IS NULL
+       AND EXISTS (SELECT 1 FROM "Agenda" a WHERE a."agendaId" = "PlenumVote"."itemId")
+       AND NOT EXISTS (SELECT 1 FROM "PlenumSessionItem" i
+                        WHERE i."itemId" = "PlenumVote"."itemId" AND i."itemTypeId" = ${ITEM_TYPE_BILL})
+  `;
+
+  // One statement, so a vote cannot be left half-classified if this fails.
+  await prisma.$executeRaw`
+    UPDATE "PlenumVote"
+       SET "kind" = CASE
+             WHEN "billId" IS NOT NULL THEN 'bill'
+             WHEN "title" LIKE '%אי אמון%' OR "title" LIKE '%אי-אמון%' OR "title" LIKE '%אי אימון%'
+               THEN 'no_confidence'
+             WHEN "agendaId" IS NOT NULL THEN 'motion'
+             WHEN EXISTS (SELECT 1 FROM "PlenumSessionItem" i
+                           WHERE i."itemId" = "PlenumVote"."itemId" AND i."itemTypeId" = 6000) THEN 'statutory'
+             WHEN EXISTS (SELECT 1 FROM "PlenumSessionItem" i
+                           WHERE i."itemId" = "PlenumVote"."itemId" AND i."itemTypeId" = 9) THEN 'plenum_item'
+             WHEN "title" LIKE '%לסדר היום%' OR "title" LIKE '%לסדר בנושא%' THEN 'motion'
+             ELSE 'other'
+           END
+  `;
+
+  const counts = await prisma.plenumVote.groupBy({ by: ["kind"], _count: { kind: true } });
+  const total = counts.reduce((sum, c) => sum + c._count.kind, 0);
+  const summary = counts
+    .sort((a, b) => b._count.kind - a._count.kind)
+    .map((c) => `${c.kind} ${c._count.kind}`)
+    .join(" · ");
+  await record("resolveVoteKinds", total, total - (counts.find((c) => c.kind === "other")?._count.kind ?? 0), true, summary);
+  done(`${agendaIds} votes linked to a motion · ${summary}`);
+}
+
 async function ingestGovMinistries() {
   step("KNS_GovMinistry");
   const rows = await fetchAll<RawGovMinistry>("KNS_GovMinistry");
@@ -1276,6 +1410,13 @@ async function main() {
   console.log(`Galui ETL → Knesset ${KNESSET} — ${scope}`);
   console.log(`Source: ${ODATA_BASE}`);
 
+  if (AGENDAS_ONLY) {
+    await ingestAgendas();
+    await resolveVoteKinds();
+    console.log(`\nDone in ${stamp()}.`);
+    return;
+  }
+
   await ingestStatuses();
   await ingestFactions();
   await ingestCommittees();
@@ -1343,6 +1484,11 @@ async function main() {
   await resolveVoteMembers();
   await resolveVoteBills();
 
+  // Agendas are the other thing those votes decided, so the classification
+  // runs after both are present.
+  await ingestAgendas();
+  await resolveVoteKinds();
+
   await ingestGovMinistries();
   const questionIds = await ingestQuestions();
   await ingestQuestionDocuments(questionIds);
@@ -1371,6 +1517,8 @@ async function main() {
     voteResults: await prisma.plenumVoteResult.count(),
     votesLinkedToMk: await prisma.plenumVoteResult.count({ where: { personId: { not: null } } }),
     votesOnBills: await prisma.plenumVote.count({ where: { billId: { not: null } } }),
+    agendaMotions: await prisma.agenda.count(),
+    votesOnMotions: await prisma.plenumVote.count({ where: { agendaId: { not: null } } }),
   };
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log(`\nDone in ${stamp()}.`);

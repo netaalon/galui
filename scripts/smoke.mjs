@@ -63,6 +63,8 @@ async function check(path, fn) {
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
     /\bseatDupes=[1-9]/,
     /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
+    /\bkindChips=[0-5](?!\d)/, /\bkindRows=0(?!\d)/, /\bkindBadges=0(?!\d)/,
+    /\bmotionShown=false\b/, /\bmotionBadge=0(?!\d)/, /\bdeadEndGone=false\b/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -521,6 +523,31 @@ await check("/votes", async () => {
 });
 
 // A sitting must list the votes taken in it, and a member their voting record.
+// Votes are filterable by what they decided. The kind is derived — the feed
+// has no item-type column on a vote at all — so the filter is asserted to
+// actually narrow, not just render.
+await check("/votes", async () => {
+  const chips = await page
+    .locator('nav[aria-label="סינון לפי סוג ההצבעה"] a')
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()));
+  const all = await page.locator('a[href^="/votes/"]').count();
+  await page.goto(`${S}/votes?kind=no_confidence`, { waitUntil: "networkidle" });
+  const rows = await page.locator('a[href^="/votes/"]').count();
+  const badges = await page.locator("text=אי־אמון").count();
+  // Every row on this filter must carry the badge; a bill vote must not.
+  return `kindChips=${chips.length} kindRows=${rows} kindBadges=${badges} unfiltered=${all}`;
+});
+
+// A motion for the agenda must show the motion, not just a title. Vote 42299
+// is an urgent motion; its KNS_Agenda row carries the subtype and status.
+await check("/votes/42299", async () => {
+  const aside = await page.locator("aside").innerText();
+  const hasMotion = /הצעה (דחופה|רגילה|לסדר)/.test(aside);
+  const noDeadEnd = !aside.includes("אין קישור להצעה");
+  const kindBadge = await page.locator("text=הצעה לסדר היום").count();
+  return `motionShown=${hasMotion} motionBadge=${kindBadge} deadEndGone=${noDeadEnd}`;
+});
+
 await check("/plenum/2245272", async () => {
   const votes = await page.locator('[data-testid="plenum-votes"] a[href^="/votes/"]').count();
   return `sittingVotes=${votes}`;
@@ -562,6 +589,16 @@ await check("/bills/2230015", async () => {
     cw: document.documentElement.clientWidth,
   }));
   return `mobile scrollWidth=${sw} clientWidth=${cw} overflow=${sw > cw + 1}`;
+});
+
+// Seven filter chips in a row is the kind of thing that overflows at 390px —
+// the same way the eighth nav item did.
+await check("/votes", async () => {
+  const { sw, cw } = await page.evaluate(() => ({
+    sw: document.documentElement.scrollWidth,
+    cw: document.documentElement.clientWidth,
+  }));
+  return `votesMobile scrollWidth=${sw} clientWidth=${cw} overflow=${sw > cw + 1}`;
 });
 
 await browser.close();
