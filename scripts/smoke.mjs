@@ -50,7 +50,7 @@ async function check(path, fn) {
     /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
     /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
-    /\bscrollKept=false\b/,
+    /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
@@ -176,6 +176,26 @@ await check("/patterns?funnel=bloc", async () => {
   await page.waitForLoadState("networkidle");
   const after = await page.evaluate(() => window.scrollY);
   return `blocLines=${lines} scrollKept=${before > 100 && Math.abs(after - before) < 40}`;
+});
+
+// The party view in counts must draw every line. On a log axis it drew none:
+// רע"ם reaches the last two rungs 0 times, log cannot plot 0, and Recharts
+// dropped the whole view rather than the one point.
+await check("/patterns?funnel=faction&scale=count", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const lines = await page.locator(".recharts-line").count();
+  return `countLines=${lines}`;
+});
+
+// The two blocs must be visibly apart at the committee rung, which is where
+// they diverge — 613 against 283. A log axis put them within a few pixels.
+await check("/patterns?funnel=bloc&scale=count", async () => {
+  await page.waitForSelector(".recharts-line-dots", { timeout: 15000 }).catch(() => {});
+  const groups = await page
+    .locator(".recharts-line-dots")
+    .evaluateAll((gs) => gs.map((g) => [...g.querySelectorAll("circle")].map((c) => Number(c.getAttribute("cy")))));
+  const gap = groups.length === 2 ? Math.round(Math.abs(groups[0][2] - groups[1][2])) : 0;
+  return `blocGap=${gap}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.

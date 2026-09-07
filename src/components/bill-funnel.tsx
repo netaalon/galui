@@ -78,11 +78,18 @@ export function BillFunnel({
           />
           <YAxis
             tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            // The first rung is 33x the last, so a linear axis flattens the
-            // whole tail into the baseline. Log keeps the later stages legible;
-            // the share view is linear because percentages already compress.
-            scale={scale === "count" ? "log" : "linear"}
-            domain={scale === "count" ? [1, "auto"] : [0, 100]}
+            // Square root, not log. The first rung is 33x the last, so a
+            // linear axis flattens the tail onto the baseline — but log
+            // overcorrects: it puts 30 at 38% of the height, mid-graph, and
+            // squeezes 300 and 600 to within 8 points of each other despite one
+            // being double the other. Sqrt puts 30 at 7% and keeps that same
+            // separation, spreading the whole lower range instead of the top.
+            //
+            // It also plots zero, which log cannot. רע"ם reaches the last two
+            // rungs 0 times, and on a log axis that dropped the series and left
+            // the entire party view blank.
+            scale={scale === "count" ? "sqrt" : "linear"}
+            domain={scale === "count" ? [0, "auto"] : [0, 100]}
             allowDataOverflow={false}
             tickFormatter={(v: number) => (scale === "share" ? `${v}%` : v.toLocaleString("he-IL"))}
           />

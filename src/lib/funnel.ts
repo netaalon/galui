@@ -43,6 +43,15 @@ export function parseFunnelView(v: string | undefined): FunnelView {
   return v === "bloc" || v === "faction" ? v : "total";
 }
 
+/**
+ * The count view uses a square-root y axis, not log.
+ *
+ * Linear flattens the tail — the first rung is 33x the last. Log overcorrects:
+ * it places 30 at 38% of the height and squeezes 300 and 600 to within 8 points
+ * of each other, so the coalition and opposition lines lay on top of one
+ * another exactly where they diverge. It also cannot plot zero, and רע"ם
+ * reaches the final two rungs zero times, which blanked the whole party view.
+ */
 export type FunnelScale = "count" | "share";
 
 export function parseFunnelScale(v: string | undefined): FunnelScale {
