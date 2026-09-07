@@ -42,6 +42,37 @@ function colourFor(key: string, i: number) {
   return BLOC_COLOURS[key] ?? SERIES_COLOURS[i % SERIES_COLOURS.length];
 }
 
+/**
+ * Tick values spread evenly along a square-root axis.
+ *
+ * d3 spaces ticks evenly in *value*, which on this axis bunches them at the top
+ * where nothing happens: a 0–3,727 bloc range produced 0, 1,000, 2,000, 3,000
+ * and left the lower half — where 283 against 613 is the whole point —
+ * unlabelled. Placing them at even fractions of the axis and snapping to round
+ * numbers gives a denser scale exactly where the lines are.
+ */
+function sqrtTicks(max: number, count = 7): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0];
+  // A fine ladder: rounding 3,727 up to 5,000 on a coarse one wasted a third of
+  // the axis and put the top label above any data point.
+  const LADDER = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  const snap = (v: number, mode: "near" | "up") => {
+    const mag = 10 ** Math.floor(Math.log10(v));
+    const scaled = v / mag;
+    const step =
+      mode === "up"
+        ? (LADDER.find((m) => scaled <= m) ?? 10)
+        : LADDER.reduce((best, m) => (Math.abs(m - scaled) < Math.abs(best - scaled) ? m : best), LADDER[0]);
+    return step * mag;
+  };
+  const top = snap(max, "up");
+  const out = new Set([0, top]);
+  // Even fractions of the *axis* — squared, because the axis is a square root —
+  // so the labels crowd the lower range where the lines actually sit.
+  for (let i = 1; i < count; i++) out.add(snap(top * (i / count) ** 2, "near"));
+  return [...out].filter((v) => v > 0 || v === 0).sort((a, b) => a - b);
+}
+
 export function BillFunnel({
   stages,
   series,
@@ -60,6 +91,9 @@ export function BillFunnel({
     }
     return row;
   });
+
+  const max = Math.max(1, ...series.flatMap((s) => s.counts));
+  const ticks = scale === "count" ? sqrtTicks(max) : [0, 20, 40, 60, 80, 100];
 
   return (
     // Recharts lays its axes out physically, so the plot stays LTR and the
@@ -89,7 +123,12 @@ export function BillFunnel({
             // rungs 0 times, and on a log axis that dropped the series and left
             // the entire party view blank.
             scale={scale === "count" ? "sqrt" : "linear"}
-            domain={scale === "count" ? [0, "auto"] : [0, 100]}
+            domain={scale === "count" ? [0, ticks[ticks.length - 1]] : [0, 100]}
+            ticks={ticks}
+            // Without this Recharts thins the labels on its own and drops
+            // exactly the low ones this axis exists to show.
+            interval={0}
+            width={52}
             allowDataOverflow={false}
             tickFormatter={(v: number) => (scale === "share" ? `${v}%` : v.toLocaleString("he-IL"))}
           />

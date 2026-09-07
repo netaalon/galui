@@ -51,6 +51,7 @@ async function check(path, fn) {
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
     /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
     /\bscrollKept=false\b/, /\bcountLines=[0-7](?!\d)/, /\bblocGap=[0-9](?!\d)/,
+    /\byTicks=[0-5](?!\d)/, /\blowTicks=[01](?!\d)/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
@@ -195,7 +196,16 @@ await check("/patterns?funnel=bloc&scale=count", async () => {
     .locator(".recharts-line-dots")
     .evaluateAll((gs) => gs.map((g) => [...g.querySelectorAll("circle")].map((c) => Number(c.getAttribute("cy")))));
   const gap = groups.length === 2 ? Math.round(Math.abs(groups[0][2] - groups[1][2])) : 0;
-  return `blocGap=${gap}`;
+
+  // The y axis must label the low range, which is where the lines are. d3
+  // spaces ticks evenly in value and gave 0/1,000/2,000/3,000 for a 0–3,727
+  // range, leaving 283 against 613 unlabelled; Recharts then thins them further
+  // unless told not to.
+  const yTicks = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => /^[\d,]+$/.test(t)));
+  const low = yTicks.filter((t) => Number(t.replace(/,/g, "")) > 0 && Number(t.replace(/,/g, "")) <= 900).length;
+  return `blocGap=${gap} yTicks=${yTicks.length} lowTicks=${low}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.
