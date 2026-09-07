@@ -414,6 +414,21 @@ what makes the URL-length limit the binding constraint on a full run. Use
 
 - `KNS_CmtSessionItem` / `KNS_PlmSessionItem`: `ItemTypeID` 2 means the item is a
   bill and `ItemID` is a `BillID`.
+- **`KNS_Status.OrderTransition` looks like it orders the legislative stages and
+  is null on all 81 rows.** The ladder in `src/lib/funnel.ts` is hand-ordered
+  from the 35 `הצעת חוק` statuses instead. Note the duplicate descriptions —
+  101 and 108 are both "הכנה לקריאה ראשונה", as are 109/167 and 178/179 — so
+  map by id, and never assume one description means one id.
+- **A bill's stage record is incomplete, so read the furthest stage, not every
+  stage.** Bills reach first reading with no committee-assignment row of their
+  own: counting stages literally made government bills *rise* through the ladder,
+  60 at the committee stage against 410 at first reading. Take the maximum rung
+  and count "got at least this far".
+- **Government and private bills follow different ladders**, not merely
+  different starting points: a private bill's committee stage comes *before*
+  first reading and a government bill's after it. 3.0% of private bills became
+  law against 58.2% of government ones, and plotting both on one axis credits
+  government bills with a preliminary reading they never had.
 - `KNS_PlmSessionItem.StatusID` is the **legislative reading stage**
   ("הונחה על שולחן הכנסת לקריאה ראשונה"), not a workflow state. It is what makes
   a bill timeline readable. `IsDiscussion` (an int, not a bool) separates a real

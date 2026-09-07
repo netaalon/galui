@@ -3,9 +3,12 @@ import { PageHeader } from "@/components/page-header";
 import { BlocBadge } from "@/components/bloc-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { BillFunnel } from "@/components/bill-funnel";
 import { OutcomeBadge } from "@/components/vote-tally";
 import { formatDate, fullName, truncate } from "@/lib/format";
+import { parseFunnelScale, parseFunnelView } from "@/lib/funnel";
 import {
+  getBillFunnel,
   getBillProgressBaseline,
   getBlocHeadToHead,
   getClosestVotes,
@@ -21,8 +24,17 @@ export const metadata = { title: "דפוסי חקיקה והצבעה" };
 const pct = (n: number, of: number) => (of === 0 ? "0" : ((n / of) * 100).toFixed(1).replace(/\.0$/, ""));
 const he = (n: number) => n.toLocaleString("he-IL");
 
-export default async function PatternsPage() {
-  const [head, defeats, killers, throughput, baseline, close] = await Promise.all([
+export default async function PatternsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ funnel?: string; scale?: string }>;
+}) {
+  const sp = await searchParams;
+  const view = parseFunnelView(sp.funnel);
+  const scale = parseFunnelScale(sp.scale);
+
+  const [funnel, head, defeats, killers, throughput, baseline, close] = await Promise.all([
+    getBillFunnel(),
     getBlocHeadToHead(),
     getGovernmentDefeats(),
     getPrivateBillKillers(),
@@ -33,6 +45,17 @@ export default async function PatternsPage() {
 
   const coalKiller = killers.find((k) => k.sponsorBloc === "coalition");
   const oppKiller = killers.find((k) => k.sponsorBloc === "opposition");
+  const funnelSeries =
+    view === "bloc"
+      ? funnel.byBloc.map((s) => ({ ...s, label: s.key === "coalition" ? "קואליציה" : "אופוזיציה" }))
+      : view === "faction"
+        // Party names run to 60 characters — the ש"ס entry alone is
+        // "התאחדות הספרדים שומרי תורה תנועתו של מרן הרב עובדיה יוסף זצ\"ל" —
+        // which a chart legend cannot carry. The full name stays in the
+        // tooltip.
+        ? funnel.byFaction.map((s) => ({ ...s, label: truncate(s.key, 22) || s.key }))
+        : [{ ...funnel.total, label: "כל ההצעות הפרטיות" }];
+
   const byVolume = [...throughput].slice(0, 6);
   const byPassed = [...throughput].sort((a, b) => b.passed - a.passed).slice(0, 6);
 
@@ -52,6 +75,78 @@ export default async function PatternsPage() {
       </p>
 
       <div className="space-y-6">
+        <Card data-testid="pattern-funnel">
+          <CardHeader>
+            <CardTitle>מה עובר את המסלול</CardTitle>
+            <CardDescription>
+              הצעות חוק פרטיות לפי השלב הרחוק ביותר שאליו הגיעו —{" "}
+              {he(funnel.total.total)} הצעות, מהן {he(funnel.total.passed)} הפכו לחוק (
+              {pct(funnel.total.passed, funnel.total.total)}%). לשם השוואה,{" "}
+              {pct(funnel.government.passed, funnel.government.total)}% מהצעות החוק
+              הממשלתיות התקבלו. הצעות ממשלתיות אינן על הגרף: מסלולן שונה, והן נכנסות
+              אליו בקריאה הראשונה.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 text-xs">
+              <span className="flex gap-2">
+                {([["total", "הכול"], ["bloc", "לפי גוש"], ["faction", "לפי סיעה"]] as const).map(
+                  ([v, label]) => (
+                    <Link
+                      key={v}
+                      href={`/patterns?funnel=${v}&scale=${scale}`}
+                      aria-current={view === v ? "true" : undefined}
+                      className={
+                        view === v
+                          ? "rounded-md bg-secondary px-2 py-1 font-medium text-secondary-foreground"
+                          : "rounded-md px-2 py-1 text-muted-foreground hover:bg-secondary/60"
+                      }
+                    >
+                      {label}
+                    </Link>
+                  ),
+                )}
+              </span>
+              <span className="flex gap-2">
+                {([["count", "מספר הצעות"], ["share", "אחוז מהמוגשות"]] as const).map(([v, label]) => (
+                  <Link
+                    key={v}
+                    href={`/patterns?funnel=${view}&scale=${v}`}
+                    aria-current={scale === v ? "true" : undefined}
+                    className={
+                      scale === v
+                        ? "rounded-md bg-secondary px-2 py-1 font-medium text-secondary-foreground"
+                        : "rounded-md px-2 py-1 text-muted-foreground hover:bg-secondary/60"
+                    }
+                  >
+                    {label}
+                  </Link>
+                ))}
+              </span>
+            </div>
+
+            <BillFunnel stages={funnel.stages} series={funnelSeries} scale={scale} />
+
+            {view === "bloc" ? (
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                שני הגושים מגישים כמות דומה ומעבירים את הדיון המוקדם בכמות דומה — ומשם
+                המסלולים נפרדים. שלב קביעת הוועדה הוא צוואר הבקבוק: מבין ההצעות
+                שעברו דיון מוקדם, הגיעו לוועדה{" "}
+                {pct(
+                  funnel.byBloc.find((s) => s.key === "coalition")?.counts[2] ?? 0,
+                  funnel.byBloc.find((s) => s.key === "coalition")?.counts[1] ?? 1,
+                )}
+                % מהצעות הקואליציה מול{" "}
+                {pct(
+                  funnel.byBloc.find((s) => s.key === "opposition")?.counts[2] ?? 0,
+                  funnel.byBloc.find((s) => s.key === "opposition")?.counts[1] ?? 1,
+                )}
+                % מהצעות האופוזיציה.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
         <Card data-testid="pattern-headtohead">
           <CardHeader>
             <CardTitle>כשהגושים מצביעים הפוך</CardTitle>

@@ -3,6 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { MemberSort } from "@/lib/member-sort";
 import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
+import { FUNNEL_STAGES, STATUS_RUNG } from "@/lib/funnel";
 
 /**
  * The bills that most recently entered the legislative process.
@@ -1162,4 +1163,92 @@ export async function getBillOwnBlocOpposition(billId: number) {
   if (rows.length === 0) return null;
   const r = rows[0];
   return { voteId: r.voteId, own: Number(r.own), total: Number(r.total), sponsorBloc: r.sponsorBloc };
+}
+
+/**
+ * How far private bills get, as a funnel.
+ *
+ * Private bills only. Government bills follow a different path — they enter at
+ * first reading and their committee stage comes *after* it, not before — so
+ * plotting them on this ladder would credit them with a preliminary reading
+ * they never had. Their pass rate is returned separately for contrast.
+ */
+export async function getBillFunnel() {
+  const cases = Object.entries(STATUS_RUNG)
+    .map(([id, rung]) => `WHEN ${Number(id)} THEN ${rung}`)
+    .join(" ");
+
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ subType: string | null; bloc: string | null; faction: string | null; rung: number; n: number }>
+  >(`
+    WITH st AS (
+      SELECT "billId", "statusId" FROM "Bill" WHERE "statusId" IS NOT NULL
+      UNION ALL SELECT "billId", "statusId" FROM "PlenumSessionItem" WHERE "billId" IS NOT NULL AND "statusId" IS NOT NULL
+      UNION ALL SELECT "billId", "statusId" FROM "SessionItem" WHERE "billId" IS NOT NULL AND "statusId" IS NOT NULL
+    ),
+    rung AS (
+      SELECT b."billId", b."subTypeDesc" AS "subType",
+             MAX(CASE s."statusId" ${cases} ELSE -1 END) AS rung
+        FROM st s JOIN "Bill" b ON b."billId" = s."billId"
+       GROUP BY b."billId"
+    )
+    SELECT r."subType", p."bloc", TRIM(p."factionName") AS faction, r.rung, COUNT(*) AS n
+      FROM rung r
+      LEFT JOIN "BillInitiator" bi ON bi."billId" = r."billId" AND bi."ordinal" = 1
+      LEFT JOIN "Person" p ON p."personId" = bi."personId"
+     WHERE r.rung >= 0
+     GROUP BY 1, 2, 3, 4
+  `);
+
+  const stageCount = FUNNEL_STAGES.length;
+  const cumulative = (byRung: Map<number, number>) =>
+    Array.from({ length: stageCount }, (_, i) =>
+      [...byRung.entries()].reduce((sum, [r, n]) => (r >= i ? sum + n : sum), 0),
+    );
+
+  const bucket = (pick: (r: (typeof rows)[number]) => string | null, only: (r: (typeof rows)[number]) => boolean) => {
+    const out = new Map<string, Map<number, number>>();
+    for (const r of rows) {
+      if (!only(r)) continue;
+      const key = pick(r);
+      if (!key) continue;
+      const m = out.get(key) ?? new Map<number, number>();
+      m.set(Number(r.rung), (m.get(Number(r.rung)) ?? 0) + Number(r.n));
+      out.set(key, m);
+    }
+    return out;
+  };
+
+  const isPrivate = (r: (typeof rows)[number]) => r.subType === "פרטית";
+  const total = bucket(() => "all", isPrivate);
+  const byBloc = bucket((r) => r.bloc, isPrivate);
+  const byFaction = bucket((r) => r.faction, isPrivate);
+
+  const toSeries = (m: Map<string, Map<number, number>>, minTotal = 0) =>
+    [...m.entries()]
+      .map(([key, byRung]) => {
+        const counts = cumulative(byRung);
+        return { key, counts, total: counts[0], passed: counts[stageCount - 1] };
+      })
+      .filter((s) => s.total >= minTotal)
+      .sort((a, b) => b.total - a.total);
+
+  // Government bills, for the contrast line in the caption only.
+  const govByRung = new Map<number, number>();
+  for (const r of rows) {
+    if (r.subType !== "ממשלתית") continue;
+    govByRung.set(Number(r.rung), (govByRung.get(Number(r.rung)) ?? 0) + Number(r.n));
+  }
+  const gov = cumulative(govByRung);
+
+  return {
+    stages: [...FUNNEL_STAGES],
+    total: toSeries(total)[0] ?? { key: "all", counts: [], total: 0, passed: 0 },
+    byBloc: toSeries(byBloc),
+    // 40 keeps the tail out — a faction with 11 bills and one law reads as a 9%
+    // success rate, which is noise dressed as a finding — and eight lines is
+    // already the most a reader can follow.
+    byFaction: toSeries(byFaction, 40).slice(0, 8),
+    government: { counts: gov, total: gov[0] ?? 0, passed: gov[stageCount - 1] ?? 0 },
+  };
 }

@@ -1,0 +1,50 @@
+/**
+ * The stages a bill passes through, and which status ids mark each one.
+ *
+ * The feed has an `OrderTransition` column on `KNS_Status` that looks like it
+ * would supply this ordering. It is null on all 81 rows, so the ladder is
+ * hand-ordered from the 35 bill statuses.
+ *
+ * Kept out of `queries.ts` so the client chart can import the labels without
+ * pulling Prisma — the same reason the sort constants live on their own.
+ */
+export const FUNNEL_STAGES = [
+  "הונחה על שולחן הכנסת",
+  "דיון מוקדם",
+  "ועדה לקראת קריאה ראשונה",
+  "קריאה ראשונה",
+  "ועדה לקראת שנייה-שלישית",
+  "קריאה שנייה-שלישית",
+  "התקבלה",
+] as const;
+
+/**
+ * Status id → rung. A bill's rung is the **highest** it ever reached, and the
+ * funnel counts bills that got at least that far.
+ *
+ * Taking the maximum rather than requiring a record at every stage matters: a
+ * bill can appear at first reading with no committee-assignment row of its own,
+ * and counting stages literally made government bills *rise* through the ladder
+ * — 60 at the committee stage against 410 at first reading.
+ */
+export const STATUS_RUNG: Record<number, number> = {
+  104: 0, // הונחה על שולחן הכנסת לדיון מוקדם
+  150: 1, // במליאה לדיון מוקדם
+  106: 2, 142: 2, 101: 2, 108: 2, 109: 2, 167: 2, // committee, before first reading
+  141: 3, 111: 3, // tabled for / debated at first reading
+  113: 4, 178: 4, 179: 4, // committee, before second-third
+  130: 5, 114: 5, 131: 5, 117: 5, // tabled for / debated at second-third
+  118: 6, // התקבלה בקריאה שלישית
+};
+
+export type FunnelView = "total" | "bloc" | "faction";
+
+export function parseFunnelView(v: string | undefined): FunnelView {
+  return v === "bloc" || v === "faction" ? v : "total";
+}
+
+export type FunnelScale = "count" | "share";
+
+export function parseFunnelScale(v: string | undefined): FunnelScale {
+  return v === "share" ? "share" : "count";
+}

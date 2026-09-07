@@ -49,6 +49,8 @@ async function check(path, fn) {
     /\bsummaryExplained=false\b/, /\benactedText=0(?!\d)/,
     /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
+    /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
+    /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
     /\bseatDupes=[1-9]/,
@@ -131,6 +133,41 @@ await check("/bills/2229019", async () => {
 await check("/members/30719", async () => {
   const leadBadges = (await page.locator("body").innerText()).split("יוזם/ת ראשי/ת").length - 1;
   return `member leadBadges=${leadBadges}`;
+});
+
+// The bill funnel must fall monotonically: it counts bills that got AT LEAST
+// as far as each stage, so a rise means the rung mapping broke. Government
+// bills used to produce exactly that, rising 60 -> 410 -> 578.
+await check("/patterns", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const lines = await page.locator(".recharts-line").count();
+  // Recharts 3 has no .recharts-xAxis wrapper, so both axes share the tick
+  // class; the y ticks are bare numbers and the stage labels are not.
+  const stages = await page
+    .locator(".recharts-cartesian-axis-tick-value")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").trim()).filter((t) => t && !/^[\d,.%]+$/.test(t)).length);
+  const ys = await page
+    .locator(".recharts-line-dots circle")
+    .evaluateAll((ns) => ns.map((n) => Number(n.getAttribute("cy"))));
+  // A falling series plots downward, so cy must be non-decreasing.
+  const monotonic = ys.every((y, i) => i === 0 || y >= ys[i - 1] - 0.5);
+  return `funnelLines=${lines} funnelStages=${stages} funnelMonotonic=${monotonic}`;
+});
+
+await check("/patterns?funnel=bloc", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const lines = await page.locator(".recharts-line").count();
+  return `blocLines=${lines}`;
+});
+
+// Party names run to 60 characters, which a legend cannot carry.
+await check("/patterns?funnel=faction&scale=share", async () => {
+  await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
+  const lines = await page.locator(".recharts-line").count();
+  const legend = await page
+    .locator(".recharts-legend-item-text")
+    .evaluateAll((ns) => ns.map((n) => (n.textContent || "").length));
+  return `factionLines=${lines} legendTooLong=${Math.max(0, ...legend) > 26}`;
 });
 
 // The patterns page states four measures of the same finding. The assertion
