@@ -50,6 +50,7 @@ async function check(path, fn) {
     /\bdefeatRows=0(?!\d)/, /\bcloseRows=0(?!\d)/, /\bsponsorRows=0(?!\d)/,
     /\bkillerAsymmetry=false\b/, /\bownBlocNote=0(?!\d)/,
     /\bfunnelLines=0(?!\d)/, /\bfunnelMonotonic=false\b/, /\bfunnelStages=[0-6](?!\d)/,
+    /\bscrollKept=false\b/,
     /\bblocLines=[01](?!\d)/, /\bfactionLines=[0-1](?!\d)/, /\blegendTooLong=true\b/,
     /\brosterChair=0(?!\d)/, /\bblocSplit=false\b/, /\bmemberSeats=0(?!\d)/,
     /\battendanceDisclosed=false\b/, /\brosterPast=0(?!\d)/, /\brosterDupes=[1-9]/,
@@ -157,7 +158,24 @@ await check("/patterns", async () => {
 await check("/patterns?funnel=bloc", async () => {
   await page.waitForSelector(".recharts-line", { timeout: 15000 }).catch(() => {});
   const lines = await page.locator(".recharts-line").count();
-  return `blocLines=${lines}`;
+
+  // Switching view must not throw the reader back to the top — the controls sit
+  // above the chart, so a scroll reset hides what they just asked to see.
+  //
+  // Dispatch the click through the DOM rather than page.click(): Playwright
+  // scrolls an element into view before clicking it, which moves the window
+  // itself and makes the measurement meaningless. That artifact read as a bug
+  // in three separate runs before this was written down.
+  await page.evaluate(() => window.scrollTo(0, 350));
+  const before = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => {
+    const a = [...document.querySelectorAll("a")].find((x) => (x.textContent || "").trim() === "לפי סיעה");
+    a?.click();
+  });
+  await page.waitForURL(/funnel=faction/, { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
+  const after = await page.evaluate(() => window.scrollY);
+  return `blocLines=${lines} scrollKept=${before > 100 && Math.abs(after - before) < 40}`;
 });
 
 // Party names run to 60 characters, which a legend cannot carry.

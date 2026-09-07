@@ -95,6 +95,10 @@ export default async function PatternsPage({
                     <Link
                       key={v}
                       href={`/patterns?funnel=${v}&scale=${scale}`}
+                      // Without this the reader is thrown back to the top of
+                      // the page every time they switch view, and the chart
+                      // they were looking at scrolls out of sight.
+                      scroll={false}
                       aria-current={view === v ? "true" : undefined}
                       className={
                         view === v
@@ -112,6 +116,7 @@ export default async function PatternsPage({
                   <Link
                     key={v}
                     href={`/patterns?funnel=${view}&scale=${v}`}
+                    scroll={false}
                     aria-current={scale === v ? "true" : undefined}
                     className={
                       scale === v
