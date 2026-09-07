@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { factionNamesMatchingShort } from "@/lib/factions";
 import type { MemberSort } from "@/lib/member-sort";
 import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
 import { FUNNEL_STAGES, GOV_JOINS_AT_RUNG, STATUS_RUNG } from "@/lib/funnel";
@@ -189,6 +190,9 @@ function nameSearchFilter(q: string): Prisma.PersonWhereInput | undefined {
         { firstName: { contains: w } },
         { lastName: { contains: w } },
         { factionName: { contains: w } },
+        // The site shows short faction names, so they have to be searchable:
+        // ש"ס is registered under a name that does not contain those letters.
+        { factionName: { in: factionNamesMatchingShort(w) } },
         { governmentRole: { contains: w } },
       ],
     })),

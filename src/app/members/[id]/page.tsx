@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { shortFactionName } from "@/lib/factions";
 import { countLabel, formatDate, formatRelative, fullName, knessetMemberUrl, truncate } from "@/lib/format";
 import { getCommitteesForMember, getMember, getMemberActivityByMonth, getMemberCommitteeAttendance, getMemberCommitteeSeats, getMemberQuestions, getMemberVotingRecord } from "@/lib/queries";
 import { MemberSeats } from "@/components/committee-roster";
@@ -51,11 +52,12 @@ export default async function MemberPage({ params }: { params: Promise<{ id: str
         <div className="min-w-0 flex-1 space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{fullName(member)}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Some official faction names run to 60+ characters; the badge
-                defaults to nowrap + shrink-0, which pushes it off-screen. */}
+            {/* Shown short. The registered name runs to 61 characters for
+                ש"ס, and the badge defaults to nowrap + shrink-0, which pushed
+                it off-screen. */}
             {member.factionName ? (
               <Badge variant="secondary" className="h-auto max-w-full shrink whitespace-normal text-start">
-                {member.factionName.trim()}
+                {shortFactionName(member.factionName)}
               </Badge>
             ) : null}
             <BlocBadge bloc={member.bloc} />

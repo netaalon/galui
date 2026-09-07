@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BillFunnel } from "@/components/bill-funnel";
 import { OutcomeBadge } from "@/components/vote-tally";
+import { shortFactionName } from "@/lib/factions";
 import { formatDate, fullName, truncate } from "@/lib/format";
 import { parseFunnelScale, parseFunnelView } from "@/lib/funnel";
 import {
@@ -53,7 +54,9 @@ export default async function PatternsPage({
         // Party names run to 60 characters — the ש"ס entry alone is
         // "התאחדות הספרדים שומרי תורה תנועתו של מרן הרב עובדיה יוסף זצ\"ל" —
         // which a chart legend cannot carry. The full name stays in the tooltip.
-        ? funnel.byFaction.map((s) => ({ ...s, label: truncate(s.key, 22) || s.key }))
+        ? // The registered names run to 61 characters; truncating them cut
+          // mid-word, so the legend uses the short forms.
+          funnel.byFaction.map((s) => ({ ...s, label: shortFactionName(s.key) }))
         : [
             { ...funnel.total, label: "פרטיות" },
             { ...funnel.governmentOnLadder, label: "ממשלתיות" },
@@ -141,6 +144,9 @@ export default async function PatternsPage({
             </div>
 
             <BillFunnel
+              // Remounts on a view change, so a faction hidden in one view does
+              // not stay hidden in the next — the series keys differ per view.
+              key={view}
               stages={funnelStages}
               series={funnelSeries}
               scale={scale}

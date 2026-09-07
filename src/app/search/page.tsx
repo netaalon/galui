@@ -4,6 +4,7 @@ import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState, PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { shortFactionName } from "@/lib/factions";
 import { formatDateTime, formatRelative, fullName, truncate } from "@/lib/format";
 import { search } from "@/lib/queries";
 
@@ -46,7 +47,9 @@ export default async function SearchPage({
                     <MemberAvatar person={m} className="size-9" />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{fullName(m)}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{m.factionName ?? "—"}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {shortFactionName(m.factionName) || "—"}
+                      </span>
                     </span>
                   </Link>
                 ))}

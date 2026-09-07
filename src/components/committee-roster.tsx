@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BlocBadge } from "@/components/bloc-badge";
 import { MemberAvatar } from "@/components/member-avatar";
 import { Badge } from "@/components/ui/badge";
+import { shortFactionName } from "@/lib/factions";
 import { formatDate, fullName } from "@/lib/format";
 import type { RosterSeat } from "@/lib/queries";
 
@@ -94,7 +95,9 @@ function Group({
                   {fullName(s.person)}
                 </span>
                 {s.person.factionName && !muted ? (
-                  <span className="block truncate text-xs text-muted-foreground">{s.person.factionName}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {shortFactionName(s.person.factionName)}
+                  </span>
                 ) : null}
               </span>
               {s.person.bloc ? <BlocBadge bloc={s.person.bloc} /> : null}

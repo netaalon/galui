@@ -7,6 +7,7 @@ import { MemberAvatar } from "@/components/member-avatar";
 import { EmptyState } from "@/components/page-header";
 import { BillTypeBadge, StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { shortFactionName } from "@/lib/factions";
 import { formatDate, fullName } from "@/lib/format";
 import { getBill, getBillOwnBlocOpposition } from "@/lib/queries";
 import { buildBillTimeline } from "@/lib/timeline";
@@ -175,7 +176,7 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
                           <span className="block truncate text-sm font-medium">{fullName(i.person)}</span>
                           {i.person.factionName ? (
                             <span className="block truncate text-xs text-muted-foreground">
-                              {i.person.factionName}
+                              {shortFactionName(i.person.factionName)}
                             </span>
                           ) : null}
                         </span>

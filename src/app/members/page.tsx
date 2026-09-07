@@ -5,7 +5,7 @@ import { MemberAvatar } from "@/components/member-avatar";
 import { MemberControls } from "@/components/member-controls";
 import { EmptyState, PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
-import { BLOC_LABELS, BLOC_VERIFIED_ON } from "@/lib/factions";
+import { BLOC_LABELS, BLOC_VERIFIED_ON, shortFactionName } from "@/lib/factions";
 import { countLabel, fullName } from "@/lib/format";
 import { parseMemberSort } from "@/lib/member-sort";
 import { getMemberBlocCounts, listMembers } from "@/lib/queries";
@@ -17,19 +17,25 @@ export const metadata = { title: "חברי כנסת" };
 type Member = Awaited<ReturnType<typeof listMembers>>[number];
 
 /** Sorting by faction or bloc reads far better with the groups called out. */
-function groupsFor(members: Member[], sort: string): Array<[string, Member[]]> | null {
+function groupsFor(members: Member[], sort: string): Array<[string, string, Member[]]> | null {
   if (sort !== "faction" && sort !== "bloc") return null;
-  const out = new Map<string, Member[]>();
+  // Grouped on the registered name and only *shown* short, so two factions
+  // whose short forms coincide never merge into one heading.
+  const out = new Map<string, { label: string; rows: Member[] }>();
   for (const m of members) {
+    const faction = m.factionName?.trim();
     const key =
       sort === "faction"
-        ? (m.factionName?.trim() || "ללא שיוך סיעתי")
+        ? (faction || "ללא שיוך סיעתי")
         : m.bloc === "coalition" || m.bloc === "opposition"
           ? BLOC_LABELS[m.bloc]
           : "לא מסווג";
-    out.set(key, [...(out.get(key) ?? []), m]);
+    const label = sort === "faction" ? shortFactionName(faction) || key : key;
+    const at = out.get(key) ?? { label, rows: [] };
+    at.rows.push(m);
+    out.set(key, at);
   }
-  return [...out.entries()];
+  return [...out.entries()].map(([key, { label, rows }]) => [key, label, rows]);
 }
 
 function MemberCard({ member }: { member: Member }) {
@@ -40,7 +46,7 @@ function MemberCard({ member }: { member: Member }) {
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium leading-tight">{fullName(member)}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {member.factionName?.trim() || "ללא שיוך סיעתי"}
+            {shortFactionName(member.factionName) || "ללא שיוך סיעתי"}
           </p>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -99,8 +105,8 @@ export default async function MembersPage({
         </EmptyState>
       ) : groups ? (
         <div className="space-y-8">
-          {groups.map(([label, rows]) => (
-            <section key={label}>
+          {groups.map(([key, label, rows]) => (
+            <section key={key}>
               <h2 className="mb-3 flex items-baseline gap-2 border-b pb-2 text-sm font-semibold">
                 {label}
                 <span className="text-xs font-normal text-muted-foreground">

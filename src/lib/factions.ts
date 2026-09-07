@@ -94,6 +94,55 @@ export const FACTIONS: Record<number, FactionEntry> = {
   },
 };
 
+/**
+ * Short display names, for places too narrow for the registered one.
+ *
+ * The feed carries each faction's *registered* name, which for two of them is a
+ * sentence: ש"ס is filed as 61 characters ending in a dedication to Rabbi
+ * Ovadia Yosef, and the National Unity faction as "כחול לבן - המחנה הממלכתי".
+ * Truncating them cut mid-word and made two parties indistinguishable in a
+ * chart legend.
+ *
+ * כחול לבן keeps the *first* half deliberately: faction 1098, its predecessor,
+ * is registered as plain "המחנה הממלכתי" and two MKs still sit under it, so
+ * taking the second half would collide with a different faction.
+ *
+ * Keyed by the name as the feed spells it — the same faction appears with two
+ * spellings across tables, so both are listed.
+ */
+const SHORT_NAMES: Record<string, string> = {
+  'התאחדות הספרדים שומרי תורה תנועתו של מרן הרב עובדיה יוסף זצ"ל': 'ש"ס',
+  'התאחדות הספרדים שומרי תורה (ש"ס)': 'ש"ס',
+  "כחול לבן - המחנה הממלכתי": "כחול לבן",
+};
+
+export function shortFactionName(name: string | null | undefined): string {
+  if (!name) return "";
+  const full = name.trim();
+  if (SHORT_NAMES[full]) return SHORT_NAMES[full];
+  // Five factions are registered as "<name> בראשות <leader>", and the leader is
+  // never the useful half: "עוצמה יהודית בראשות איתמר בן גביר" → "עוצמה יהודית".
+  // "נעם - בראשות אבי מעוז" leaves a dangling dash, hence the second strip.
+  return full.split(/\s+בראשות\s+/)[0].replace(/\s*[-–]\s*$/, "").trim() || full;
+}
+
+/**
+ * Registered names whose short form contains `word`.
+ *
+ * Only the explicit map above needs this: the "בראשות" short forms are
+ * prefixes of the registered name, so a substring search finds them anyway.
+ * ש"ס is filed under a name that does not contain the letters ש"ס, so without
+ * this, searching for the party by the name the site itself displays returns
+ * none of its fourteen members.
+ */
+export function factionNamesMatchingShort(word: string): string[] {
+  const w = word.trim();
+  if (!w) return [];
+  return Object.entries(SHORT_NAMES)
+    .filter(([, short]) => short.includes(w))
+    .map(([full]) => full);
+}
+
 export function blocFor(factionId: number | null | undefined): Bloc | null {
   return factionId == null ? null : (FACTIONS[factionId]?.bloc ?? null);
 }

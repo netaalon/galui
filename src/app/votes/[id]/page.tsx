@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OutcomeBadge, RESULT_LABELS, VoteTally } from "@/components/vote-tally";
+import { shortFactionName } from "@/lib/factions";
 import { formatDateTime, fullName } from "@/lib/format";
 import { sourceRecordUrl } from "@/lib/odata-link";
 import { getVote } from "@/lib/queries";
@@ -72,7 +73,9 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
                         [m.firstName, m.lastName].filter(Boolean).join(" ") || `מזהה ${m.mkId}`
                       )}
                       {m.person?.factionName ? (
-                        <span className="ms-2 text-xs text-muted-foreground">{m.person.factionName}</span>
+                        <span className="ms-2 text-xs text-muted-foreground">
+                          {shortFactionName(m.person.factionName)}
+                        </span>
                       ) : null}
                     </li>
                   ))}

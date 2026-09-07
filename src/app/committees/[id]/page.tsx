@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { shortFactionName } from "@/lib/factions";
 import { countLabel, formatDateTime, formatRelative, truncate } from "@/lib/format";
 import {
   getCommittee,
@@ -276,7 +277,7 @@ export default async function CommitteePage({ params }: { params: Promise<{ id: 
                             ) : null}
                           </span>
                           <span className="block truncate text-xs text-muted-foreground">
-                            {m.person.factionName?.trim() ?? ""}
+                            {shortFactionName(m.person.factionName)}
                           </span>
                         </span>
                         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
