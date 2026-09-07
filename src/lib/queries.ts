@@ -3,6 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { factionNamesMatchingShort } from "@/lib/factions";
 import type { VoteKind } from "@/lib/vote-kind";
+import { voteMargin } from "@/lib/vote-outcome";
 import type { MemberSort } from "@/lib/member-sort";
 import type { QuestionFilter, QuestionSort } from "@/lib/question-sort";
 import { FUNNEL_STAGES, GOV_JOINS_AT_RUNG, STATUS_RUNG } from "@/lib/funnel";
@@ -832,16 +833,6 @@ export async function getAttendanceCoverage() {
 // denormalises onto each result row.
 // ---------------------------------------------------------------------------
 
-export type VoteOutcome = "passed" | "failed" | "tied" | "unknown";
-
-/** Whether a vote carried, from its own tallies. Abstentions do not count. */
-export function voteOutcome(v: { forCount: number; againstCount: number; totalCount: number }): VoteOutcome {
-  if (v.totalCount === 0) return "unknown";
-  if (v.forCount > v.againstCount) return "passed";
-  if (v.forCount < v.againstCount) return "failed";
-  return "tied";
-}
-
 export async function listVotes({
   q,
   kind,
@@ -937,7 +928,7 @@ export async function getMemberVotingRecord(personId: number, take = 10) {
           select: {
             voteId: true, title: true, subject: true, voteDateTime: true,
             forCount: true, againstCount: true, abstainCount: true,
-            presentCount: true, totalCount: true,
+            presentCount: true, totalCount: true, majorityRequired: true, kind: true,
           },
         },
       },
@@ -993,7 +984,15 @@ export async function getBlocHeadToHead() {
       SELECT c."voteId",
              CASE WHEN c.f > c.a THEN 7 WHEN c.a > c.f THEN 8 END AS coal,
              CASE WHEN o.f > o.a THEN 7 WHEN o.a > o.f THEN 8 END AS opp,
-             v."forCount", v."againstCount",
+             v."forCount", v."againstCount", v."majorityRequired",
+             -- Which side's position prevailed: 7 (בעד) if the vote carried,
+             -- else 8. Carrying is not always the larger count — a motion of
+             -- no confidence needs 61 of the 120 members, so its usual 49-0
+             -- tally is a defeat for the side that moved it.
+             CASE WHEN CASE WHEN v."majorityRequired" IS NOT NULL
+                              THEN v."forCount" >= v."majorityRequired"
+                              ELSE v."forCount" > v."againstCount" END
+                  THEN 7 ELSE 8 END AS "carried",
              c.f + c.a AS coalVoted
         FROM pos c
         JOIN pos o ON o."voteId" = c."voteId" AND o."bloc" = 'opposition'
@@ -1001,10 +1000,12 @@ export async function getBlocHeadToHead() {
        WHERE c."bloc" = 'coalition'
     )
     SELECT COUNT(*) AS decided,
-           SUM(CASE WHEN (CASE WHEN "forCount" > "againstCount" THEN 7 ELSE 8 END) = coal THEN 1 ELSE 0 END) AS "coalitionWon",
-           SUM(CASE WHEN (CASE WHEN "forCount" > "againstCount" THEN 7 ELSE 8 END) = opp THEN 1 ELSE 0 END) AS "oppositionWon"
+           SUM(CASE WHEN "carried" = coal THEN 1 ELSE 0 END) AS "coalitionWon",
+           SUM(CASE WHEN "carried" = opp THEN 1 ELSE 0 END) AS "oppositionWon"
       FROM sides
-     WHERE coal IS NOT NULL AND opp IS NOT NULL AND coal <> opp AND "forCount" <> "againstCount"
+     WHERE coal IS NOT NULL AND opp IS NOT NULL AND coal <> opp
+       -- A threshold vote is always decided; only a simple-majority tie is not.
+       AND ("majorityRequired" IS NOT NULL OR "forCount" <> "againstCount")
   `;
   const r = rows[0];
   return { decided: Number(r.decided), coalitionWon: Number(r.coalitionWon), oppositionWon: Number(r.oppositionWon) };
@@ -1041,8 +1042,13 @@ export async function getGovernmentDefeats(minCoalitionVoting = 30) {
        AND (CASE WHEN c.f > c.a THEN 7 WHEN c.a > c.f THEN 8 END) IS NOT NULL
        AND (CASE WHEN o.f > o.a THEN 7 WHEN o.a > o.f THEN 8 END) IS NOT NULL
        AND (CASE WHEN c.f > c.a THEN 7 ELSE 8 END) <> (CASE WHEN o.f > o.a THEN 7 ELSE 8 END)
-       AND v."forCount" <> v."againstCount"
-       AND (CASE WHEN v."forCount" > v."againstCount" THEN 7 ELSE 8 END)
+       AND (v."majorityRequired" IS NOT NULL OR v."forCount" <> v."againstCount")
+       -- Same scoring as getBlocHeadToHead: a no-confidence motion that the
+       -- opposition "won" on the raw counts still failed, and is not a defeat.
+       AND (CASE WHEN CASE WHEN v."majorityRequired" IS NOT NULL
+                             THEN v."forCount" >= v."majorityRequired"
+                             ELSE v."forCount" > v."againstCount" END
+                 THEN 7 ELSE 8 END)
            <> (CASE WHEN c.f > c.a THEN 7 ELSE 8 END)
      ORDER BY v."voteDateTime"
   `;
@@ -1149,8 +1155,11 @@ export async function getClosestVotes(maxMargin = 2, minTurnout = 20, take = 20)
     include: { bill: { select: { billId: true, name: true } } },
   }).then((all) =>
     all
-      .filter((v) => Math.abs(v.forCount - v.againstCount) <= maxMargin)
-      .sort((a, b) => Math.abs(a.forCount - a.againstCount) - Math.abs(b.forCount - b.againstCount))
+      // voteMargin, not the raw gap: for a threshold vote "close" means close
+      // to the bar. The nearest no-confidence motion of the term was 8 short
+      // of 61 while trailing the other side by only 6.
+      .filter((v) => voteMargin(v) <= maxMargin)
+      .sort((a, b) => voteMargin(a) - voteMargin(b))
       .slice(0, take),
   );
 }

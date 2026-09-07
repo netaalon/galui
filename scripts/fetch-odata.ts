@@ -1130,6 +1130,12 @@ async function ingestAgendas(): Promise<number[]> {
  * 6. `other` — no evidence either way. 7 votes: one decision on a VAT order,
  *    and six whose title is a bare quoted subject. Left unclassified rather
  *    than guessed.
+ *
+ * The kind also fixes the bar. A no-confidence motion carries only by a
+ * majority of all 120 members (Basic Law: The Government §28), so
+ * `majorityRequired` is set to 61 on those and left null everywhere else,
+ * meaning the ordinary majority of those voting. Without it, the coalition's
+ * usual answer — not voting at all — reads as a 49-0 win for the motion.
  */
 async function resolveVoteKinds() {
   step("Classifying what each vote decided");
@@ -1161,6 +1167,14 @@ async function resolveVoteKinds() {
            END
   `;
 
+  // The threshold follows from the kind, so it is set in the same stage. 61 is
+  // a majority of the 120 seats Basic Law: The Knesset §3 fixes.
+  const thresholded = await prisma.$executeRaw`
+    UPDATE "PlenumVote"
+       SET "majorityRequired" = CASE WHEN "kind" = 'no_confidence' THEN 61 ELSE NULL END
+     WHERE ("kind" = 'no_confidence') <> ("majorityRequired" IS NOT NULL)
+  `;
+
   const counts = await prisma.plenumVote.groupBy({ by: ["kind"], _count: { kind: true } });
   const total = counts.reduce((sum, c) => sum + c._count.kind, 0);
   const summary = counts
@@ -1169,6 +1183,7 @@ async function resolveVoteKinds() {
     .join(" · ");
   await record("resolveVoteKinds", total, total - (counts.find((c) => c.kind === "other")?._count.kind ?? 0), true, summary);
   done(`${agendaIds} votes linked to a motion · ${summary}`);
+  if (thresholded) done(`${thresholded} votes need an absolute majority of 61`);
 }
 
 async function ingestGovMinistries() {

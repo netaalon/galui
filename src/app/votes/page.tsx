@@ -3,7 +3,7 @@ import { EmptyState, PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { VoteKindBadge } from "@/components/vote-kind-badge";
-import { OutcomeBadge, VoteTally } from "@/components/vote-tally";
+import { MajorityNote, OutcomeBadge, VoteTally } from "@/components/vote-tally";
 import { formatDateTime, truncate } from "@/lib/format";
 import { getVoteStats, listVotes } from "@/lib/queries";
 import { VOTE_KIND_LABELS, VOTE_KIND_NOTES, parseVoteKind } from "@/lib/vote-kind";
@@ -137,6 +137,7 @@ export default async function VotesPage({
                     </div>
 
                     <VoteTally tally={v} className="mt-3" />
+                    <MajorityNote tally={v} className="mt-2" />
                   </CardContent>
                 </Card>
               </li>

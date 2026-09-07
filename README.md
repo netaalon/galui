@@ -62,8 +62,8 @@ primary key.
 reaches a vote and what dies there:
 
 - Of **4,777** votes where the two blocs took opposite positions, the coalition's
-  position prevailed in **99.9%**. The opposition won 8, half of which were the
-  coalition failing to turn up; **4** are defeats with the government present.
+  position prevailed in **99.9%**. The opposition won 7, of which **4** are
+  defeats with the government present and 3 are the coalition not turning up.
 - A coalition member's private bill that fails is voted down by their **own
   side** in 878 of 881 cases. An opposition member's is voted down by the other
   side in all 405.
@@ -74,8 +74,9 @@ reaches a vote and what dies there:
   those that do, **68.9%** become law, against **59.3%** of government bills.
   Private-bill mortality is entirely front-loaded. Both kinds are drawn on one
   ladder, the government line starting where its path does.
-- **19** votes were decided by two votes or fewer, and there is not one tie in
-  the whole term.
+- **19** votes were decided by two votes or fewer. Among those with at least 20
+  members voting there is no tie at all; the term's only 3 ties are motions for
+  the agenda that drew 2, 10 and 14 voters.
 
 They are on one page deliberately: read alone, the bills that never moved look
 like a measure of members' sincerity rather than of who controls the agenda.
@@ -217,6 +218,13 @@ Things worth knowing, all verified against the live service:
   unresolved rather than guessing. It currently resolves 149 of 149 voter ids
   and all 526,483 rows; the ETL prints the yield, and every member's votes were
   independently checked to fall inside their own term of service.
+- **A no-confidence motion needs 61 votes, not a majority of those voting.**
+  Basic Law: The Government §28 requires a majority of all 120 members, and the
+  coalition's usual answer to such a motion is not to vote at all — so the
+  tallies read 49 for and 0 against. Scoring that by the larger count showed
+  **158 of the term's 220** no-confidence votes as passed. Not one reached 61;
+  the best was 53. `PlenumVote.majorityRequired` carries the bar, since the feed
+  has no outcome column of any kind.
 - **A vote's `itemId` is not always a bill**, and `KNS_PlenumVote` does not say
   what it is — it has no item-type column at all. 6,762 of the term's votes link
   to a bill across 1,645 bills, typed by `KNS_PlmSessionItem.ItemTypeID` rather

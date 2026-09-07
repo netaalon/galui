@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { OutcomeBadge, VoteTally } from "@/components/vote-tally";
+import { MajorityNote, OutcomeBadge, VoteTally } from "@/components/vote-tally";
 import { countLabel, formatDateTime, formatTime, truncate } from "@/lib/format";
 import { splitPlenumDocs } from "@/lib/plenum-docs";
 import { getPlenumSession } from "@/lib/queries";
@@ -142,6 +142,7 @@ export default async function PlenumSessionPage({ params }: { params: Promise<{ 
                         <p className="mt-0.5 text-xs text-muted-foreground">{truncate(v.subject, 100)}</p>
                       ) : null}
                       <VoteTally tally={v} className="mt-2" />
+                      <MajorityNote tally={v} className="mt-1.5" />
                     </li>
                   ))}
                 </ul>

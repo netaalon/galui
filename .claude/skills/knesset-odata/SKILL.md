@@ -325,6 +325,22 @@ repeated calls, unlike `KNS_PlmSessionItem`.
   formulas are applied: **382 motions** for the agenda, **220 no-confidence
   motions**, **145 statutory actions**, **20 plenum items**, and **7** that no
   source classifies. See `resolveVoteKinds()`.
+- **The feed records no outcome, and "more for than against" is not the rule
+  for every vote.** There is no outcome column at all — only tallies — so
+  whether a vote carried is derived. A motion of no confidence carries only by
+  a majority of *all* 120 members (Basic Law: The Government §28, constructive
+  no confidence since the 2014 amendment), and the coalition's usual answer is
+  not to vote at all: the tallies read 49 for and 0 against. Scoring by the
+  larger count showed 158 of the term's 220 no-confidence votes as passed. None
+  reached 61; the best was 53. `PlenumVote.majorityRequired` holds the bar.
+  Entrenched Basic Law clauses carry their own thresholds (61 or 80) and are
+  **not** handled — the feed does not say which clause a bill amends.
+- **`ForOptionDesc` / `AgainstOptionDesc` say what "for" meant**, and they are
+  worth reading before assuming an orientation. "For" is always the affirmative
+  proposition — להביע אי-אמון בממשלה, לקבל את ההסתייגות, לאשר את ההצעה,
+  להעביר את הנושא לדיון בוועדה — and "against" is `לדחות את ההצעה` on every row
+  sampled. So the tally is not inverted on any vote type, but the columns are
+  the only place that is written down.
 - **`IsNoConfidenceInGov` is dead.** True on **4 of 36,181** votes across all
   Knessets and 0 of the term's 7,536, while Knesset 25 alone held 220
   no-confidence motions. They are findable only by their title, which is a

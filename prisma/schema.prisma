@@ -641,6 +641,18 @@ model PlenumVote {
   statusDesc      String?
   title           String?
   subject         String?
+  /// Votes needed **in favour** for this to carry, where the ordinary rule
+  /// does not apply. Null means a simple majority of those voting.
+  ///
+  /// 61 on a motion of no confidence: Basic Law: The Government §28 requires a
+  /// majority of all 120 members, so 49 in favour and 0 against is a failure.
+  /// The feed says nothing about this — it has no outcome column at all — so
+  /// the threshold is written by resolveVoteKinds() and applied in
+  /// `src/lib/vote-outcome.ts`. Other absolute-majority requirements exist
+  /// (entrenched Basic Law clauses need 61 or 80) and are **not** set here,
+  /// because identifying which bill amends which clause is not something the
+  /// feed supports; see #23.
+  majorityRequired Int?
   /// What was actually being decided: bill · no_confidence · motion ·
   /// statutory · plenum_item · other. **Derived** — see resolveVoteKinds().
   ///

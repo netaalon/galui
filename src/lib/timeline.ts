@@ -21,6 +21,8 @@ export type TimelineVote = {
   abstainCount: number;
   presentCount: number;
   totalCount: number;
+  /** Null for every bill vote; carried so the badge scores the same way here. */
+  majorityRequired: number | null;
 };
 
 export type TimelineEvent = {
@@ -199,6 +201,7 @@ export function buildBillTimeline(bill: Bill): TimelineEvent[] {
         abstainCount: v.abstainCount,
         presentCount: v.presentCount,
         totalCount: v.totalCount,
+        majorityRequired: v.majorityRequired,
       })),
       moreVotes: Math.max(0, ordered.length - VOTES_SHOWN),
     });

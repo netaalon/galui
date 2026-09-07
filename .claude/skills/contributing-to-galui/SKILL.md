@@ -87,6 +87,12 @@ check when you add anything interactive. Guard the *bug*, not just the feature:
 after the committee card silently rendered empty for every member, the suite now
 asserts it is non-empty.
 
+**Restart the dev server after a schema change.** A running `next dev` holds the
+Prisma client it loaded at startup, so after `prisma migrate deploy` +
+`prisma generate` every page 500s with `Unknown field `<new column>`` — which
+reads like a bad query rather than a stale process. It has cost a debugging
+cycle three times now.
+
 Watch for horizontal overflow on mobile — RTL grids with long Hebrew strings
 overflow easily, and `min-w-0` on grid children is usually the fix.
 

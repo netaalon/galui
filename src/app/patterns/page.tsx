@@ -229,7 +229,8 @@ export default async function PatternsPage({
             </div>
 
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              האופוזיציה גברה ב־{he(head.oppositionWon)} הצבעות, אך במחציתן
+              האופוזיציה גברה ב־{he(head.oppositionWon)} הצבעות, אך ב־
+              {he(Math.max(0, head.oppositionWon - defeats.length))} מהן
               הקואליציה כלל לא נכחה במספרים. אלה {he(defeats.length)} ההזדמנויות
               שבהן היא נכחה והפסידה בכל הכנסת הזאת:
             </p>

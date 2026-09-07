@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { majorityNote, voteOutcome } from "@/lib/vote-outcome";
 
 export type Tally = {
   forCount: number;
@@ -7,6 +8,8 @@ export type Tally = {
   abstainCount: number;
   presentCount: number;
   totalCount: number;
+  /** Votes needed in favour where a simple majority is not the bar. */
+  majorityRequired?: number | null;
 };
 
 /**
@@ -27,14 +30,20 @@ const BARS = [
   { key: "presentCount", label: "נוכח", bar: "bg-slate-400", text: "text-muted-foreground" },
 ] as const;
 
+/**
+ * Whether the vote carried. Scored by `voteOutcome()`, not by comparing the two
+ * counts here: a motion of no confidence needs 61 of the 120 members, so its
+ * usual 49-0 tally is a failure and used to render as "עבר".
+ */
 export function OutcomeBadge({ tally }: { tally: Tally }) {
-  if (tally.totalCount === 0) {
+  const outcome = voteOutcome(tally);
+  if (outcome === "unknown") {
     return <Badge variant="outline" className="text-muted-foreground">אין תוצאות</Badge>;
   }
-  if (tally.forCount === tally.againstCount) {
+  if (outcome === "tied") {
     return <Badge variant="secondary" className="border-0 bg-amber-500/12 font-medium text-amber-700 dark:text-amber-400">תיקו</Badge>;
   }
-  const passed = tally.forCount > tally.againstCount;
+  const passed = outcome === "passed";
   return (
     <Badge
       variant="secondary"
@@ -48,6 +57,18 @@ export function OutcomeBadge({ tally }: { tally: Tally }) {
       {passed ? "עבר" : "נפל"}
     </Badge>
   );
+}
+
+/**
+ * Why a vote with more for than against still failed.
+ *
+ * Without this the page looks broken: 49 in favour, 0 against, "נפל". Renders
+ * nothing for the ordinary majority.
+ */
+export function MajorityNote({ tally, className }: { tally: Tally; className?: string }) {
+  const note = majorityNote(tally);
+  if (!note) return null;
+  return <p className={cn("text-xs text-muted-foreground", className)}>{note}</p>;
 }
 
 /**

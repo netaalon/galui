@@ -65,6 +65,8 @@ async function check(path, fn) {
     /\bmoreLink=0(?!\d)/, /\binterleaved=false\b/,
     /\bkindChips=[0-5](?!\d)/, /\bkindRows=0(?!\d)/, /\bkindBadges=0(?!\d)/,
     /\bmotionShown=false\b/, /\bmotionBadge=0(?!\d)/, /\bdeadEndGone=false\b/,
+    /\bnoConfFell=false\b/, /\bthresholdExplained=0(?!\d)/,
+    /\bncPassedBadges=[1-9]/, /\bncFellBadges=0(?!\d)/,
   ];
   const hit = BAD.find((re) => re.test(result));
   if (hit) failures.push(`${path}: ${result}  [matched ${hit}]`);
@@ -536,6 +538,26 @@ await check("/votes", async () => {
   const badges = await page.locator("text=אי־אמון").count();
   // Every row on this filter must carry the badge; a bill vote must not.
   return `kindChips=${chips.length} kindRows=${rows} kindBadges=${badges} unfiltered=${all}`;
+});
+
+// A no-confidence motion needs 61 of the 120 members, so 49 for and 0 against
+// is a failure. This read "עבר" on 158 of the term's 220 such votes, and the
+// tally alone cannot show the bug — the badge has to be checked against a vote
+// whose raw counts say the opposite.
+await check("/votes/44559", async () => {
+  const outcome = (await page.locator("main").innerText()).includes("נפל");
+  const explained = await page.locator("text=/נדרש רוב של 61/").count();
+  const wrong = await page.locator("main").innerText().then((t) => /\bעבר\b/.test(t.split("בעד")[0]));
+  return `noConfFell=${outcome} thresholdExplained=${explained} looksPassed=${wrong}`;
+});
+
+// And no vote anywhere may be scored past its threshold: every no-confidence
+// vote in the term failed, so the list filtered to them must show no "עבר".
+await check("/votes?kind=no_confidence", async () => {
+  const body = await page.locator("ul").first().innerText();
+  const passed = (body.match(/עבר/g) || []).length;
+  const fell = (body.match(/נפל/g) || []).length;
+  return `ncPassedBadges=${passed} ncFellBadges=${fell}`;
 });
 
 // A motion for the agenda must show the motion, not just a title. Vote 42299

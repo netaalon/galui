@@ -91,6 +91,14 @@ from `better-sqlite3`. That is why sort constants live in their own modules.
   feed denormalises onto each result row; an ambiguous name stays null rather
   than being guessed, and the ETL reports the yield. `PlenumVote.plenumSessionId`
   *is* a real key and a real relation.
+- `PlenumVote.majorityRequired` — the bar a vote had to clear, 61 on a motion
+  of no confidence and null everywhere else. The feed has no outcome column, so
+  `src/lib/vote-outcome.ts` scores every vote, and it is a plain module (no
+  Prisma) because the badge that renders it is a shared component. Two raw-SQL
+  aggregates score independently and were updated with it; check them if you
+  add another threshold. Anything that reads a vote with hand-picked columns
+  must select `majorityRequired`, or the badge silently reverts to comparing
+  counts.
 - `PlenumVote.kind` — derived, and the reason it has to be is that
   `KNS_PlenumVote` carries no item-type column at all. `bill` comes from the
   feed's own typing, `motion` from a `KNS_Agenda` row, `statutory` and

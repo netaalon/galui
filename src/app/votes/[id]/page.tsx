@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VoteKindBadge } from "@/components/vote-kind-badge";
-import { OutcomeBadge, RESULT_LABELS, VoteTally } from "@/components/vote-tally";
+import { MajorityNote, OutcomeBadge, RESULT_LABELS, VoteTally } from "@/components/vote-tally";
 import { shortFactionName } from "@/lib/factions";
 import { formatDateTime, fullName } from "@/lib/format";
 import { sourceRecordUrl } from "@/lib/odata-link";
@@ -45,6 +45,7 @@ export default async function VotePage({ params }: { params: Promise<{ id: strin
       <Card className="mb-6">
         <CardContent className="py-5">
           <VoteTally tally={vote} />
+          <MajorityNote tally={vote} className="mt-3" />
         </CardContent>
       </Card>
 
