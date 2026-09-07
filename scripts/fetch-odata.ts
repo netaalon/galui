@@ -325,9 +325,20 @@ async function ingestPositions() {
     const mkRows = list.filter((r) => POSITION_MK.includes(r.PositionID));
     if (mkRows.length === 0) continue;
 
+    // Current row first, then the latest by start date. The tie-break matters:
+    // 31 members hold no current faction row — ministers who gave up their seat,
+    // and members whose term ended — and sorting on `IsCurrent` alone left those
+    // in feed order, which picked a member's *first* faction. That displayed
+    // גדעון סער, the Foreign Minister and leader of a coalition party, as
+    // opposition, and it made a defection analysis name him the Knesset's
+    // biggest rebel for voting with the party he had actually joined.
     const factionRow = list
       .filter((r) => r.PositionID === POSITION_FACTION_MEMBER && r.FactionID != null)
-      .sort((a, b) => Number(parseBool(b.IsCurrent)) - Number(parseBool(a.IsCurrent)))[0];
+      .sort(
+        (a, b) =>
+          Number(parseBool(b.IsCurrent)) - Number(parseBool(a.IsCurrent)) ||
+          (parseDate(b.StartDate)?.getTime() ?? 0) - (parseDate(a.StartDate)?.getTime() ?? 0),
+      )[0];
 
     const notable = list
       .filter((r) => NOTABLE_POSITIONS.includes(r.PositionID))

@@ -25,7 +25,7 @@ export const BLOC_LABELS: Record<Bloc, string> = {
 };
 
 /** When a human last checked this table against reality. */
-export const BLOC_VERIFIED_ON = "2026-09-05";
+export const BLOC_VERIFIED_ON = "2026-09-07";
 
 /**
  * This map is a snapshot, and it is incomplete for history.
@@ -60,16 +60,21 @@ export const FACTIONS: Record<number, FactionEntry> = {
   1095: {
     name: "התאחדות הספרדים שומרי תורה (ש\"ס)",
     bloc: "coalition",
-    note: "NEEDS REVIEW — withdrew its ministers in 2025 over the conscription law while remaining in the coalition. Holds no current portfolio, so this entry is asserted, not observable in the data.",
+    note: "Withdrew its ministers in 2025 over the conscription law while remaining in the coalition, so no portfolio confirms this. The voting record does: 99.9% agreement with הליכוד's majority position over 6,791 comparable votes, against 9.5-26.1% for every opposition faction.",
   },
   1101: {
     name: "יהדות התורה",
     bloc: "coalition",
-    note: "NEEDS REVIEW — same 2025 conscription-law dispute as ש\"ס; portfolio holdings no longer reflect its bloc.",
+    note: "Same 2025 conscription dispute as ש\"ס. 99.4% agreement with הליכוד over 5,646 votes. The dispute shows as a dip to 77% in 2025-Q3 and a return to 98%, i.e. friction rather than a change of side.",
   },
 
   // --- Opposition -----------------------------------------------------------
   1102: { name: "יש עתיד", bloc: "opposition" }, // holds the opposition leadership (Yair Lapid)
+  1109: {
+    name: 'חה"כ עידן רול',
+    bloc: "opposition",
+    note: "A one-member faction split from יש עתיד in Jan 2025 and dissolved Aug 2025, so no portfolio or leadership post places it. Asserted from the voting record: 5.6% agreement with הליכוד over 3,065 comparable votes, below every other opposition faction.",
+  },
   1110: { name: "כחול לבן - המחנה הממלכתי", bloc: "opposition" }, // left the emergency government in June 2024
   1104: { name: "ישראל ביתנו", bloc: "opposition" },
   1103: { name: 'חד"ש-תע"ל', bloc: "opposition" },
