@@ -395,6 +395,33 @@ which 352 have at least one vote. Not `KNS_PlmAgendaItem` — that URL 404s.
   member was absent from the debate (4).
 - `KNS_DocumentAgenda` exists (27,537 rows) and is **not** ingested.
 
+## The other Knesset hosts: files, video, and a bot challenge
+
+The feed gives URLs on three other hosts, and they behave completely differently.
+This is recorded because concluding "the link is broken" from a server-side
+fetch is wrong on two of them.
+
+- **`fs.knesset.gov.il`** — every document file. It serves a **Reblaze bot
+  challenge for certain extensions only**: `.pptx`, `.msg` and `.xlsx` answer
+  HTTP **247** with an obfuscated script, while `.pdf`, `.doc` and `.docx`
+  answer 200 (3 of 3 each). That is 709 of 28,569 document rows, **2.5%**, and
+  no part of the protocol pipeline — `scripts/protocols/` fetches `.doc` and is
+  unaffected. Verified live.
+- **`main.knesset.gov.il`** — the HTML site. Behind the same challenge on
+  *every* request, User-Agent irrelevant. Do not build on it; that is the rule
+  in `AGENTS.md`, and this is the mechanism behind it. `CommitteeSession.
+  broadcastUrl` points here and **every one of those 7,115 links is dead** —
+  they redirect to the main Activity page. See #24.
+- **`video.knesset.gov.il`** — sitting video, no challenge, answers plainly.
+  The manifest URL is **derivable from our own primary keys**:
+  `…/mp4:vod/CMT/CmtSession_<committeeSessionId>.mp4/manifest.mpd` and
+  `…/mp4:vod/PLM/PlmSession_<plenumSessionId>.mp4/manifest.mpd`. Plenum
+  coverage is 100% across 2022-2026; committee video does not exist before
+  July 2025 and runs 50-70% after. See #24.
+
+HTTP **247** is not an RFC status — it is the challenge. Recognise it by that or
+by `window.rbzns` in the body, never by the script filename, which is a decoy.
+
 ## Referential integrity is not guaranteed by arrival order
 
 `KNS_Committee` rows reference a parent committee in the same table, and the
