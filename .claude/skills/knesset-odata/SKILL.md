@@ -395,6 +395,35 @@ which 352 have at least one vote. Not `KNS_PlmAgendaItem` — that URL 404s.
   member was absent from the debate (4).
 - `KNS_DocumentAgenda` exists (27,537 rows) and is **not** ingested.
 
+## Bill texts: Word for private bills, untrustworthy PDF for government ones
+
+The format decides whether extraction is safe, and it splits exactly along the
+private/government line.
+
+- **`הצעת חוק לדיון מוקדם`** — the private bill as tabled. 13,703 documents over
+  **6,890 bills**, and every one is reachable as OOXML: 6,813 published as both
+  Word and PDF, 77 Word only, **none PDF only**. Layout is fixed — a paragraph
+  that is exactly `דברי הסבר` separates the proposed clauses from the
+  explanatory notes, and paragraph 0 carries `מספר פנימי: <billId>`. A
+  deterministic parser hit **140 of 140** sampled (80 drawn at random across
+  2022-2026, 60 newest), so no model is needed for this corpus at all. See
+  `scripts/bills/extract_explanation.py`.
+- **`הצעת חוק לקריאה הראשונה`** and every later reading — **PDF only**: 440/440
+  for government bills, 295/295 for private, plus 571 second-third and 377
+  gazette texts. Government bills never appear as Word, because they skip the
+  preliminary reading entirely, so their explanatory notes exist only in PDF.
+- **`חוק - נוסח לא רשמי`** is the exception, 364 as `.docx` — but that is the
+  enacted law, which carries no explanatory notes.
+
+**The PDF text layer is corrupt, in two different ways, and both are dangerous.**
+On the same government bill PDF, `pypdf` returns correct word order with a
+broken glyph map — every **ל becomes ת** (`כלי רכב` reads `כתי רכב`, `הממשלה`
+reads `הממשתה`) and full stops become `ע` — while `pymupdf` returns correct
+glyphs but reverses runs and **loses the `דברי הסבר` heading entirely**. Text
+like that looks like Hebrew and reads as nonsense, which is the worst possible
+input to a language model: it will reconstruct something plausible and wrong.
+Send the PDF itself to a model that reads documents, never our extraction of it.
+
 ## The other Knesset hosts: files, video, and a bot challenge
 
 The feed gives URLs on three other hosts, and they behave completely differently.
